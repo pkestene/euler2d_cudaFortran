@@ -1,0 +1,97 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! Author: P. Kestener, CEA Saclay
+!!
+!!
+!! This software is governed by the CeCILL license under French law and
+!! abiding by the rules of distribution of free software.  You can  use, 
+!! modify and/ or redistribute the software under the terms of the CeCILL
+!! license as circulated by CEA, CNRS and INRIA at the following URL
+!! "http://www.cecill.info". 
+!!
+!! The fact that you are presently reading this means that you have had
+!! knowledge of the CeCILL license and that you accept its terms.
+
+!!!! -*- Mode: F90 -*- !!!!
+!> \file main_gpu.f90
+!> \brief 2D Euler solver on GPU
+
+program euler2d_gpu
+
+  use HydroParameters_gpu  ! get routines initHydroParameters, printHydroParameters
+  use HydroRun_gpu         ! get computing routines and utilities (init, boundaries, ...)
+  !use Monitoring           ! get timer routines on CPU
+  use Monitoring_gpu       ! get timer routines on GPU
+
+  use cudafor
+
+  implicit none
+
+  real   (fp_kind)  :: t=0
+  real   (fp_kind)  :: dt=0
+  integer           :: istat
+
+  call initHydroParameters_gpu()
+  call printHydroParameters()
+
+  call init_cuda_timer()
+
+  ! init domain
+  call initHydroRun()
+  call compute_dt_cpu( dt )
+  write(*,*) 'Initial value for dt cpu',dt
+  call compute_dt( dt, modulo(nStep,2) )
+  write(*,*) 'Initial value for dt gpu',dt
+
+  ! init boundaries
+  call make_boundaries_gpu(d_u)
+
+  ! start computation
+  write(*,*) 'Start computation....'
+  call cudaTimerStart(d_total_timer)
+
+  ! main loop
+  do while (t < tEnd .and. nStep < nStepmax)
+     ! output
+     if ( modulo(nStep,nOutput) == 0) then 
+        write(*,*) 'Output results at step ',nStep, 'dt ',dt
+        call cudaTimerStart(d_io_timer)
+        if (modulo(nStep,2) == 0) then
+           h_u = d_u
+        else
+           h_u = d_u2
+        end if
+        call saveVTK(h_u,nStep)
+        call cudaTimerStop(d_io_timer)
+     end if
+     
+     ! compute dt
+     call compute_dt( dt, modulo(nStep,2) )
+
+     ! perform one step integration
+     call godunov_unsplit(dt)
+
+     nStep = nStep+1
+
+  end do
+
+  ! write finale results
+  !write(*,*) 'Output results at step ',nStep, 'dt ',dt
+  !h_u = d_u
+  !call saveVTK(h_u,nStep)
+  
+  ! end of computation
+  call cudaTimerStop(d_total_timer)
+
+  call cleanupHydroRun()
+
+  ! print monitoring
+  write(*,*) 'total      time : ', d_total_timer%elapsed,     'secondes'
+  write(*,*) 'compute    time : ', d_godunov_timer%elapsed,   'secondes', 100*d_godunov_timer%elapsed / d_total_timer%elapsed, '%'
+  write(*,*) 'io         time : ', d_io_timer%elapsed,        'secondes', 100*d_io_timer%elapsed / d_total_timer%elapsed, '%'
+  write(*,*) 'boundaries time : ', d_boundaries_timer%elapsed,'secondes', 100*d_boundaries_timer%elapsed / d_total_timer%elapsed, '%'
+
+  write(*,*) 'Perf             : ',nStep*isize*jsize/(d_total_timer%elapsed-d_io_timer%elapsed), ' number of cell-updates/s'
+
+  call cleanup_cuda_timer()
+
+end program euler2d_gpu

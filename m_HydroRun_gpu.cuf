@@ -1,0 +1,1040 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! Author: P. Kestener, CEA Saclay
+!!
+!!
+!! This software is governed by the CeCILL license under French law and
+!! abiding by the rules of distribution of free software.  You can  use, 
+!! modify and/ or redistribute the software under the terms of the CeCILL
+!! license as circulated by CEA, CNRS and INRIA at the following URL
+!! "http://www.cecill.info". 
+!!
+!! The fact that you are presently reading this means that you have had
+!! knowledge of the CeCILL license and that you accept its terms.
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!< Defines all variables needed to perform computations
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+module HydroRun_gpu
+
+  use HydroPrecision
+  use HydroConstants
+  use HydroParameters
+  use HydroParameters_gpu
+  use HydroUtils_gpu
+  use Monitoring_gpu
+
+  use cudaFor
+
+  ! defines data arrays
+
+  ! host arrays
+  real(fp_kind), dimension(:,:,:), allocatable :: h_u !< conservative variables
+
+  ! device arrays
+  real(fp_kind), dimension(:,:,:), allocatable, device :: d_u, d_u2 !< conservative variables
+  real(fp_kind), dimension(:,:,:), allocatable, device :: d_q       !< primitive variables (implementation version 1 only)
+
+  real(fp_kind), dimension(:,:,:), allocatable, device :: d_qm_x, d_qm_y !< input to Riemann solvers (implementation version 1 only)
+  real(fp_kind), dimension(:,:,:), allocatable, device :: d_qp_x, d_qp_y !< input to Riemann solvers (implementation version 1 only)
+
+
+  ! cuda kernel parameters
+#ifdef USE_DOUBLE
+  ! for double precision
+  integer, parameter ::  UNSPLIT_BLOCK_DIMX_2D=16, UNSPLIT_BLOCK_INNER_DIMX_2D=12
+  integer, parameter ::  UNSPLIT_BLOCK_DIMY_2D=12, UNSPLIT_BLOCK_INNER_DIMY_2D=8
+#else
+  ! for single precision
+  integer, parameter ::  UNSPLIT_BLOCK_DIMX_2D=32, UNSPLIT_BLOCK_INNER_DIMX_2D=28
+  integer, parameter ::  UNSPLIT_BLOCK_DIMY_2D=12, UNSPLIT_BLOCK_INNER_DIMY_2D=8
+#endif
+
+  ! compute primitive variables kernel parameters (v1)
+  integer, parameter ::  PRIM_VAR_BLOCK_DIMX_2D_V1=16
+  integer, parameter ::  PRIM_VAR_BLOCK_DIMY_2D_V1=16
+
+  ! compute trace kernel parameters (v1)
+  integer, parameter ::  TRACE_BLOCK_DIMX_2D_V1=16, TRACE_BLOCK_INNER_DIMX_2D_V1=14
+  integer, parameter ::  TRACE_BLOCK_DIMY_2D_V1=16, TRACE_BLOCK_INNER_DIMY_2D_V1=14
+
+  ! compute update kernel parameters (v1)
+  integer, parameter ::  UPDATE_BLOCK_DIMX_2D_V1=16, UPDATE_BLOCK_INNER_DIMX_2D_V1=15
+  integer, parameter ::  UPDATE_BLOCK_DIMY_2D_V1=16, UPDATE_BLOCK_INNER_DIMY_2D_V1=15
+
+  ! external boundaries
+  integer, parameter :: BOUNDARY_BLOCK_SIZE=128
+
+  integer(int_kind) :: nStep=0
+
+contains
+
+  ! !!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine initHydroRun
+
+    implicit none
+
+
+    ! memory allocation
+    allocate( h_u (isize, jsize, nbVar) )
+    allocate( d_u (isize, jsize, nbVar) )
+    allocate( d_u2(isize, jsize, nbVar) )
+
+    if (implementationVersion .eq. 1) then
+       allocate( d_q   (isize, jsize, nbVar) )
+       allocate( d_qm_x(isize, jsize, nbVar) )
+       allocate( d_qm_y(isize, jsize, nbVar) )
+       allocate( d_qp_x(isize, jsize, nbVar) )
+       allocate( d_qp_y(isize, jsize, nbVar) )
+    end if
+
+    ! initialize u (at t=0)
+    select case (problem)
+    case('implode') ! discontinuity line along the domain diagonal
+       call init_implode(h_u)
+    case default
+       write(*,*) 'Unknown problem; default to implode'
+       call init_implode(h_u)
+    end select
+
+    !! upload date into GPU memory
+    d_u  = h_u
+    d_u2 = d_u
+
+  end subroutine initHydroRun
+
+  ! !!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine cleanupHydroRun
+
+    implicit none
+
+    ! memory free
+    deallocate(h_u,d_u,d_u2)
+
+    if (implementationVersion .eq. 1) then
+       deallocate(d_q,d_qm_x,d_qm_y,d_qp_x,d_qp_y) 
+    end if
+
+  end subroutine cleanupHydroRun
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine compute_dt_cpu(dt)
+    implicit none
+
+    ! dummy variables
+    real   (fp_kind) , intent(out)  :: dt
+
+    ! local variables
+    real(fp_kind) :: invDt=0.0
+    real(fp_kind) :: vx,vy
+    integer :: i,j
+    real(fp_kind), dimension(nbVar) :: uLoc,qLoc
+    real(fp_kind)                   :: c,p,e,eken
+
+    ! for loop over inner region
+    !do j=ghostWidth+1,jsize-ghostWidth
+    !do i=ghostWidth+1,isize-ghostWidth          
+
+    do j=1,jsize
+       do i=1,isize
+          
+          if (   j>ghostWidth .and. j<=jsize-ghostWidth .and. &
+               & i>ghostWidth .and. i<=isize-ghostWidth       ) then
+
+             ! retrieve u local
+             uLoc(ID) = h_u(i,j,ID)
+             uLoc(IP) = h_u(i,j,IP)
+             uLoc(IU) = h_u(i,j,IU)
+             uLoc(IV) = h_u(i,j,IV)
+             
+             ! compute primitives
+             qLoc(ID) = max(uLoc(ID), smallr)
+             qLoc(IU) = uLoc(IU) / qLoc(ID)
+             qLoc(IV) = uLoc(IV) / qLoc(ID)
+             
+             eken = 0.5 * (qLoc(IU) * qloc(IU) + qLoc(IV) * qLoc(IV))
+             e = uLoc(IP) / qLoc(ID) - eken
+             
+             ! retrieve pressure and sound speed from equation of state
+             p = max ( (gamma0 - 1.0) * qLoc(ID) * e, qLoc(ID) * smallp)
+             c = sqrt(  gamma0 * p / qLoc(ID))
+             
+             vx = c + abs(qLoc(IU))
+             vy = c + abs(qLoc(IV))
+             invDt = max(invDt, vx/dx + vy/dy)
+
+          end if
+          
+       end do
+    end do
+
+    dt = cfl / invDt
+
+  end subroutine compute_dt_cpu
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !! Compute time step reduction
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine compute_dt(dt, useU)
+    implicit none
+
+    ! dummy variables
+    real   (fp_kind) , intent(out)  :: dt
+    integer(int_kind), intent(in)   :: useU
+
+    ! local variables
+    real(fp_kind) :: invDt=0.0
+    integer       :: i,j,k
+
+    real(fp_kind) :: vx,vy
+    !real(fp_kind), dimension(nbVar), device :: qLoc
+    !real(fp_kind), dimension(nbVar), device :: uLoc
+    real(fp_kind) :: qLoc_ID,qLoc_IP,qLoc_IU,qLoc_IV
+    real(fp_kind) :: uLoc_ID,uLoc_IP,uLoc_IU,uLoc_IV
+    real(fp_kind) :: c
+    real(fp_kind) :: eken ! kinetic energy
+    real(fp_kind) :: e    ! total energy
+    real(fp_kind) :: p
+    
+    ! for loop over inner region
+    if (useU == 0) then
+       
+       !$cuf kernel do(2) <<< (*,*), (*,*) >>>
+       do j=1,jsize
+          do i=1,isize
+             
+             if (   j>ghostWidth .and. j<=d_jsize-ghostWidth .and. &
+                  & i>ghostWidth .and. i<=d_isize-ghostWidth       ) then
+                
+                ! retrieve u local
+                uLoc_ID = d_u(i,j,ID)
+                uLoc_IP = d_u(i,j,IP)
+                uLoc_IU = d_u(i,j,IU)
+                uLoc_IV = d_u(i,j,IV)
+                
+                ! compute primitives
+                qLoc_ID = max(uLoc_ID, d_smallr)
+                qLoc_IU = uLoc_IU / qLoc_ID
+                qLoc_IV = uLoc_IV / qLoc_ID
+                
+                eken = 0.5 * (qLoc_IU * qloc_IU + qLoc_IV * qLoc_IV)
+                e = uLoc_IP / qLoc_ID - eken
+                
+                ! retrieve pressure and sound speed from equation of state
+                p = max ( (d_gamma0 - 1.0) * qLoc_ID * e, qLoc_ID * d_smallp)
+                c = sqrt(  d_gamma0 * p / qLoc_ID)
+                
+                vx = c + abs(qLoc_IU)
+                vy = c + abs(qLoc_IV)
+                invDt = max(invDt, vx/d_dx + vy/d_dy)
+                
+             end if
+                
+          end do
+       end do
+
+    else
+
+       !$cuf kernel do(2) <<< (*,*), (*,*) >>>
+       do j=1,jsize
+          do i=1,isize
+
+             if (   j>ghostWidth .and. j<=d_jsize-ghostWidth .and. &
+                  & i>ghostWidth .and. i<=d_isize-ghostWidth       ) then
+                
+                ! retrieve u local
+                uLoc_ID = d_u2(i,j,ID)
+                uLoc_IP = d_u2(i,j,IP)
+                uLoc_IU = d_u2(i,j,IU)
+                uLoc_IV = d_u2(i,j,IV)
+                
+                ! compute primitives
+                qLoc_ID = max(uLoc_ID, d_smallr)
+                qLoc_IU = uLoc_IU / qLoc_ID
+                qLoc_IV = uLoc_IV / qLoc_ID
+                
+                eken = 0.5 * (qLoc_IU * qloc_IU + qLoc_IV * qLoc_IV)
+                e = uLoc_IP / qLoc_ID - eken
+                
+                ! retrieve pressure and sound speed from equation of state
+                p = max ( (d_gamma0 - 1.0) * qLoc_ID * e, qLoc_ID * d_smallp)
+                c = sqrt(  d_gamma0 * p / qLoc_ID)
+                
+                vx = c + abs(qLoc_IU)
+                vy = c + abs(qLoc_IV)
+                invDt = max(invDt, vx/d_dx + vy/d_dy)
+                
+             end if
+
+          end do
+       end do
+
+    end if
+
+    dt = cfl / invDt
+
+  end subroutine compute_dt
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !! Wrapper to the actual computation routine
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine godunov_unsplit(dt)
+
+    implicit none
+
+    ! dummy variables
+    real(fp_kind), intent(in) :: dt
+
+    if ( modulo(nStep,2) == 0 ) then
+       call godunov_unsplit_gpu(d_u , d_u2, dt)
+    else
+       call godunov_unsplit_gpu(d_u2, d_u , dt)
+    end if
+
+  end subroutine godunov_unsplit
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !! Actual GPU computation of Godunov scheme
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine godunov_unsplit_gpu(data_in, data_out, dt)
+
+    !use Monitoring
+
+    implicit none
+
+    ! dummy variables
+    real(fp_kind), dimension(isize, jsize, nbVar), intent(inout), device :: data_in
+    real(fp_kind), dimension(isize, jsize, nbVar), intent(inout), device :: data_out
+    real(fp_kind)                                , intent(in), value     :: dt
+
+    ! local variables
+    integer :: i, j, ii, jj, iVar, ierr
+
+    real(fp_kind) :: dtdx
+    real(fp_kind) :: dtdy
+
+    ! Local variables for trace computation
+    ! we need to store qm/qp for current position i,j and i-1,j and i,j-1 
+    ! that is 1+2=3 positions in total
+    real(fp_kind), dimension(3, nbVar) :: qm_x
+    real(fp_kind), dimension(3, nbVar) :: qm_y
+
+    real(fp_kind), dimension(3, nbVar) :: qp_x
+    real(fp_kind), dimension(3, nbVar) :: qp_y
+
+    real(fp_kind), dimension(nbVar)    :: qLoc ! local primitive variables
+    real(fp_kind), dimension(4, nbVar) :: qNeighbors
+
+    real(fp_kind), dimension(2, nbVar) :: qm, qp
+    real(fp_kind)                      :: c, cPlus, cMinus
+    integer :: pos
+
+    ! Local variables for Riemann problems solving
+    real(fp_kind), dimension(nbVar) :: qleft
+    real(fp_kind), dimension(nbVar) :: qright
+    real(fp_kind), dimension(nbVar) :: qgdnv
+    real(fp_kind), dimension(nbVar) :: flux_x
+    real(fp_kind), dimension(nbVar) :: flux_y
+
+    type(dim3) :: dimGrid, dimBlock
+
+    dtdx = dt / dx
+    dtdy = dt / dy
+
+    ! fill ghost cell in data_in
+    call cudaTimerStart(d_boundaries_timer)
+    call make_boundaries_gpu(data_in)
+    call cudaTimerStop(d_boundaries_timer)
+
+    ! copy data_in into data_out (not necessary)
+    data_out = data_in
+
+    ! start main computation
+    call cudaTimerStart(d_godunov_timer)
+
+    if (implementationVersion == 0) then
+
+       ! Create the grid and block dimensions
+       dimBlock = dim3( UNSPLIT_BLOCK_DIMX_2D, UNSPLIT_BLOCK_DIMY_2D, 1 )
+       dimGrid  = dim3( &
+            & (isize+UNSPLIT_BLOCK_INNER_DIMX_2D-1)/UNSPLIT_BLOCK_INNER_DIMX_2D, &
+            & (jsize+UNSPLIT_BLOCK_INNER_DIMY_2D-1)/UNSPLIT_BLOCK_INNER_DIMY_2D, 1)
+       call kernel_godunov_unsplit_2d_v0<<<dimGrid,dimBlock>>>(data_in, data_out, dt)
+
+    else if (implementationVersion == 1) then
+
+       ! convert conservative variable into primitives ones for the entire domain
+       dimBlock = dim3( PRIM_VAR_BLOCK_DIMX_2D_V1, PRIM_VAR_BLOCK_DIMY_2D_V1, 1 )
+       dimGrid  = dim3( &
+            & (isize+PRIM_VAR_BLOCK_DIMX_2D_V1-1)/PRIM_VAR_BLOCK_DIMX_2D_V1, &
+            & (jsize+PRIM_VAR_BLOCK_DIMY_2D_V1-1)/PRIM_VAR_BLOCK_DIMY_2D_V1, 1)
+       call convertToPrimitives<<<dimGrid,dimBlock>>>(data_in)
+
+       ! trace computation: fill arrays d_qm_x, d_qm_y, d_qp_x, d_qp_y
+       dimBlock = dim3( TRACE_BLOCK_DIMX_2D_V1, TRACE_BLOCK_DIMY_2D_V1, 1 )
+       dimGrid  = dim3( &
+            & (isize+TRACE_BLOCK_INNER_DIMX_2D_V1-1)/TRACE_BLOCK_INNER_DIMX_2D_V1, &
+            & (jsize+TRACE_BLOCK_INNER_DIMY_2D_V1-1)/TRACE_BLOCK_INNER_DIMY_2D_V1, 1)
+       call computeTrace<<<dimGrid,dimBlock>>>(d_q,d_qm_x,d_qm_y,d_qp_x,d_qp_y,dt)
+       
+       ! Compute flux via Riemann solver and update (time integration)
+       dimBlock = dim3( UPDATE_BLOCK_DIMX_2D_V1, UPDATE_BLOCK_DIMY_2D_V1, 1 )
+       dimGrid  = dim3( &
+            & (isize+UPDATE_BLOCK_INNER_DIMX_2D_V1-1)/UPDATE_BLOCK_INNER_DIMX_2D_V1, &
+            & (jsize+UPDATE_BLOCK_INNER_DIMY_2D_V1-1)/UPDATE_BLOCK_INNER_DIMY_2D_V1, 1)
+       call computeFluxesAndUpdate<<<dimGrid,dimBlock>>>(data_in,data_out,d_qm_x,d_qm_y,d_qp_x,d_qp_y,dt)
+
+    end if
+
+    call cudaTimerStop(d_godunov_timer)
+
+  end subroutine godunov_unsplit_gpu
+
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !! Convert conservative variables array into primitive var array (q)
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  attributes(global) subroutine convertToPrimitives(data_in)
+    
+    implicit none
+
+    ! dummy variables
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(in)  :: data_in
+
+    ! local variables
+    ! primitive variable state vector
+    real(fp_kind), dimension(nbVar) :: uLoc
+    real(fp_kind), dimension(nbVar) :: qLoc
+    real(fp_kind)                   :: c
+    integer :: i,j
+
+    ! Block index
+    integer :: bx
+    integer :: by
+    
+    ! Thread index
+    integer :: tx
+    integer :: ty
+    
+    bx = blockIdx%x
+    by = blockIdx%y
+    tx = threadIdx%x
+    ty = threadIdx%y
+    
+    i = (bx-1) * PRIM_VAR_BLOCK_DIMX_2D_V1 + tx
+    j = (by-1) * PRIM_VAR_BLOCK_DIMY_2D_V1 + ty
+
+    
+    ! load U and convert to primitive variables
+    if (   i <= d_isize .and. &
+         & j <= d_jsize        ) then
+
+       ! Gather conservative variables
+       uLoc(:) = data_in(i,j,:)
+       
+       ! Convert to primitive variables (Array reshaping is not supported for device subprogram calls)
+       call constoprim_2d(uLoc, qLoc, c)
+       d_q(i,j,:) = qLoc(:)
+
+    end if
+
+  end subroutine convertToPrimitives
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !! Compute trace (only used in implementation version 1), i.e.
+  !! fill global array d_qm_x, d_qm_y, d_qp_x, d_qp_y
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  attributes(global) subroutine computeTrace(q,qm_x,qm_y,qp_x,qp_y,dt)
+
+    implicit none
+
+    ! dummy variables
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(inout) :: q
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(inout) :: qm_x
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(inout) :: qm_y
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(inout) :: qp_x
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(inout) :: qp_y
+    real(fp_kind), intent(in), value    :: dt
+
+    ! local variables
+    integer :: i,j,iVar
+    real(fp_kind), dimension(nbVar)   :: qLoc ! local primitive variables
+    real(fp_kind), dimension(nbVar)   :: qPlusX
+    real(fp_kind), dimension(nbVar)   :: qMinusX
+    real(fp_kind), dimension(nbVar)   :: qPlusY
+    real(fp_kind), dimension(nbVar)   :: qMinusY
+    real(fp_kind), dimension(2,nbVar) :: dq
+    real(fp_kind), dimension(2,nbVar) :: qm, qp
+    real(fp_kind) :: dtdx
+    real(fp_kind) :: dtdy
+
+    ! Block index
+    integer :: bx
+    integer :: by
+
+    ! Thread index
+    integer :: tx
+    integer :: ty
+
+    ! primitive variables in shared memory
+    real(fp_kind), dimension(TRACE_BLOCK_DIMX_2D_V1, TRACE_BLOCK_DIMY_2D_V1, nbVar), shared :: qSh
+
+    ! set local indexes
+    bx = blockIdx%x
+    by = blockIdx%y
+    tx = threadIdx%x
+    ty = threadIdx%y
+
+    i = (bx-1)*TRACE_BLOCK_INNER_DIMX_2D_V1 + tx
+    j = (by-1)*TRACE_BLOCK_INNER_DIMY_2D_V1 + ty
+
+    dtdx = dt / d_dx
+    dtdy = dt / d_dy
+
+    !
+    ! read primitive variables from d_q into shared memory
+    !
+    if (i <= d_isize .and. j <= d_jsize) then
+
+       qSh(tx,ty,:) = q(i,j,:)
+
+    end if
+    call syncthreads()
+
+    !
+    ! slopes and trace computation (i.e. dq and then qm,qp)
+    !
+    if (   i  > 1       .and. j  > 1       .and. &
+         & i  < d_isize .and. j  < d_jsize .and. &
+         & tx > 1       .and. ty > 1       .and. &
+         & tx < TRACE_BLOCK_DIMX_2D_V1     .and. &
+         & ty < TRACE_BLOCK_DIMY_2D_V1           ) then
+         
+       
+       ! get primitive variables state vector
+       qLoc   (:) = qSh(tx  ,ty  ,:)
+       qPlusX (:) = qSh(tx+1,ty  ,:)
+       qMinusX(:) = qSh(tx-1,ty  ,:)
+       qPlusY (:) = qSh(tx  ,ty+1,:)
+       qMinusY(:) = qSh(tx  ,ty-1,:)
+
+       ! get hydro slopes dq
+       call slope_unsplit_hydro_2d_v2(qLoc, qPlusX, qMinusX, qPlusY, qMinusY, dq)
+       
+       ! compute qm, qp
+       call trace_unsplit_hydro_2d(qLoc, dq, dtdx, dtdy, qm, qp)
+       
+       ! store qm, qp in external memory : only what is really needed
+       qm_x(i,j,:) = qm(1,:)
+       qp_x(i,j,:) = qp(1,:)
+       qm_y(i,j,:) = qm(2,:)
+       qp_y(i,j,:) = qp(2,:)
+
+    end if
+    call syncthreads()
+       
+  end subroutine computeTrace
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !! Compute flux via Riemann solver and update (time integration)
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  attributes(global) subroutine computeFluxesAndUpdate(data_in,data_out,qm_x,qm_y,qp_x,qp_y,dt)
+
+    implicit none
+
+    ! dummy variables
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(inout) :: data_in
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(inout) :: data_out
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(inout) :: qm_x
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(inout) :: qm_y
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(inout) :: qp_x
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(inout) :: qp_y
+    real(fp_kind), intent(in), value    :: dt
+
+
+    ! local variables
+    real(fp_kind), dimension(UPDATE_BLOCK_DIMX_2D_V1, UPDATE_BLOCK_DIMY_2D_V1, nbVar), shared :: flux_x
+    real(fp_kind), dimension(UPDATE_BLOCK_DIMX_2D_V1, UPDATE_BLOCK_DIMY_2D_V1, nbVar), shared :: flux_y
+
+    integer :: i,j
+    real(fp_kind), dimension(nbVar)     :: uOut
+    real(fp_kind), dimension(nbVar)     :: qleft, qright
+    !real(fp_kind), dimension(nbVar)     :: flux_x, flux_y
+    real(fp_kind), dimension(nbVar)     :: fluxLoc
+    real(fp_kind), dimension(nbVar)     :: qgdnv
+
+    real(fp_kind) :: dtdx
+    real(fp_kind) :: dtdy
+
+    ! Block index
+    integer :: bx
+    integer :: by
+
+    ! Thread index
+    integer :: tx
+    integer :: ty
+
+    ! set local indexes
+    bx = blockIdx%x
+    by = blockIdx%y
+    tx = threadIdx%x
+    ty = threadIdx%y
+
+    i = (bx-1)*UPDATE_BLOCK_INNER_DIMX_2D_V1 + tx
+    j = (by-1)*UPDATE_BLOCK_INNER_DIMY_2D_V1 + ty
+
+    dtdx = dt / d_dx
+    dtdy = dt / d_dy
+
+    flux_x(tx,ty,:) = 0
+    flux_y(tx,ty,:) = 0
+
+    ! Gather conservative variables
+    uOut(:) = data_in(i,j,:)
+
+    !
+    ! Solve Riemann problem at X-interfaces and compute
+    ! X-fluxes
+    !
+    if (   i > ghostWidth  .and. i < d_isize .and. &
+         & j > ghostWidth  .and. j < d_jsize       ) then 
+
+       qleft(ID)   = qm_x(i-1,j,ID)
+       qleft(IP)   = qm_x(i-1,j,IP)
+       qleft(IU)   = qm_x(i-1,j,IU)
+       qleft(IV)   = qm_x(i-1,j,IV)
+       
+       qright(ID)  = qp_x(i  ,j,ID)
+       qright(IP)  = qp_x(i  ,j,IP)
+       qright(IU)  = qp_x(i  ,j,IU)
+       qright(IV)  = qp_x(i  ,j,IV)
+       
+       ! compute hydro flux_x
+       call riemann_2d(qleft,qright,qgdnv,fluxLoc)
+       flux_x(tx,ty,:) = fluxLoc(:)
+
+    end if
+
+    !
+    ! Solve Riemann problem at Y-interfaces and compute Y-fluxes
+    !
+    if (   i > ghostWidth  .and. i < d_isize .and. &
+         & j > ghostWidth  .and. j < d_jsize       ) then
+
+       qleft(ID)   = qm_y(i,j-1,ID)
+       qleft(IP)   = qm_y(i,j-1,IP)
+       qleft(IU)   = qm_y(i,j-1,IV) ! watchout IU, IV permutation
+       qleft(IV)   = qm_y(i,j-1,IU) ! watchout IU, IV permutation
+       
+       qright(ID)  = qp_y(i,j  ,ID)
+       qright(IP)  = qp_y(i,j  ,IP)
+       qright(IU)  = qp_y(i,j  ,IV) ! watchout IU, IV permutation
+       qright(IV)  = qp_y(i,j  ,IU) ! watchout IU, IV permutation
+    
+       ! compute hydro flux_y
+       call riemann_2d(qleft,qright,qgdnv,fluxLoc)
+       flux_y(tx,ty,:) = fluxLoc(:)
+
+    end if
+
+    ! make sure flux_x and flux_y are computed
+    call syncthreads()
+    
+
+    !
+    ! update hydro array
+    !
+    if (   i > ghostWidth .and. i <= d_isize-ghostWidth .and. tx < UPDATE_BLOCK_DIMX_2D_V1 .and. &
+         & j > ghostWidth .and. j <= d_jsize-ghostWidth .and. ty < UPDATE_BLOCK_DIMY_2D_V1       ) then
+       
+       
+       uOut(ID) = uOut(ID) + flux_x(tx  ,ty,ID)*dtdx
+       uOut(ID) = uOut(ID) - flux_x(tx+1,ty,ID)*dtdx
+       
+       uOut(IP) = uOut(IP) + flux_x(tx  ,ty,IP)*dtdx
+       uOut(IP) = uOut(IP) - flux_x(tx+1,ty,IP)*dtdx
+       
+       uOut(IU) = uOut(IU) + flux_x(tx  ,ty,IU)*dtdx
+       uOut(IU) = uOut(IU) - flux_x(tx+1,ty,IU)*dtdx
+       
+       uOut(IV) = uOut(IV) + flux_x(tx  ,ty,IV)*dtdx
+       uOut(IV) = uOut(IV) - flux_x(tx+1,ty,IV)*dtdx
+       
+       !! watchout IU and IV are swapped !
+       uOut(ID) = uOut(ID) + flux_y(tx,ty  ,ID)*dtdy
+       uOut(ID) = uOut(ID) - flux_y(tx,ty+1,ID)*dtdy
+       
+       uOut(IP) = uOut(IP) + flux_y(tx,ty  ,IP)*dtdy
+       uOut(IP) = uOut(IP) - flux_y(tx,ty+1,IP)*dtdy
+       
+       uOut(IU) = uOut(IU) + flux_y(tx,ty  ,IV)*dtdy
+       uOut(IU) = uOut(IU) - flux_y(tx,ty+1,IV)*dtdy
+       
+       uOut(IV) = uOut(IV) + flux_y(tx,ty  ,IU)*dtdy
+       uOut(IV) = uOut(IV) - flux_y(tx,ty+1,IU)*dtdy
+       
+       ! copy back data into global memory
+       data_out(i,j,:) = uOut(:)
+       
+    end if
+    
+  end subroutine computeFluxesAndUpdate
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !! Hydrodynamical Implosion Test :
+  !! http://www.astro.princeton.edu/~jstone/tests/implode/Implode.html
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine init_implode(data)
+
+    implicit none
+
+    ! dummy variables
+    real(fp_kind), dimension(isize, jsize, nbVar), intent(inout) :: data
+
+    ! local variables
+    integer :: i,j
+    real(fp_kind) :: tmp
+
+    do j=1,jsize
+       do i=1,isize
+          tmp = 1.0*(i-ghostWidth-1)/nx + 1.0*(j-ghostWidth-1)/ny
+          if (tmp .gt. 0.5) then 
+             data(i,j,ID)=1.0+tmp
+             data(i,j,IP)=1.0/(gamma0-1.0)
+             data(i,j,IU)=0.0
+             data(i,j,IV)=0.0
+          else
+             data(i,j,ID)=0.125+tmp
+             data(i,j,IP)=0.14/(gamma0-1.0)
+             data(i,j,IU)=0.0
+             data(i,j,IV)=0.0               
+          end if
+       end do
+    end do
+
+  end subroutine init_implode
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !! output routine (VTK file format, ASCII, VtkImageData)
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine saveVTK(data,iStep)
+    implicit none
+    ! dummy variables
+    real   (fp_kind), dimension(isize, jsize, nbVar), intent(inout) :: data
+    integer(int_kind) :: iStep
+
+    ! local variables
+    integer :: j,iVar
+    integer :: error
+    character(LEN=80) :: filename
+    character(LEN=8)  :: filenum
+    character(1), parameter :: endl  = char(10)  ! end of line
+    character(500) :: charBuf
+    character(7) :: floatType
+
+    if (useDoublePrecision()) then
+       write(floatType,'(a)') 'Float64'
+    else
+       write(floatType,'(a)') 'Float32'
+    end if
+    write (filenum,'(i8.8)') iStep
+    filename='euler2d_' // filenum // '.vti'
+
+    !open(10,file=filename,status='replace',form='unformatted',action='write',iostat=error)
+    !open(10,file=filename,status='replace',access='stream',action='write',iostat=error)
+    open(10,file=filename,iostat=error)
+
+    ! write header
+    write(10,'(a)') '<?xml version="1.0"?>'//endl
+    if (isBigEndian()) then
+       write(10,'(a)') '<VTKFile type="ImageData" version="0.1" byte_order="BigEndian">'//endl
+    else
+       write(10,'(a)') '<VTKFile type="ImageData" version="0.1" byte_order="LittleEndian">'//endl
+    end if
+
+    ! write mesh extent
+    write(charBuf,fmt='(6(I7))',iostat=error) 1,nx+1,1,ny+1,1,2
+    write(10,'(a)') repeat(' ',2)//'<ImageData WholeExtent="'//trim(charBuf)//'"'
+    write(10,'(a)') ' Origin="0 0 0" Spacing="1 1 1">'//endl
+    write(10,'(a)') repeat(' ',2)//'<Piece Extent="'//trim(charBuf)//'">'//endl
+
+    write(10,'(a)') repeat(' ',3)//'<PointData>'//endl
+    write(10,'(a)') repeat(' ',4)//'</PointData>'//endl
+    write(10,'(a)') repeat(' ',4)//'<CellData>'//endl
+
+    ! write data array (ascii), remove ghost cells
+    do iVar=1,nbVar
+       write(10,'(a)') repeat(' ',4)//'<DataArray type="'//trim(floatType)// &
+            & '" Name="'//varNames(iVar)//'" format="ascii" >'//endl
+
+       do j=ghostWidth+1,jsize-ghostWidth
+          write(10,*) data(ghostWidth+1:isize-ghostWidth,j,iVar)
+       end do
+
+       write(10,'(a)') repeat(' ',4)//'</DataArray>'//endl
+    end do
+
+    ! write footer
+    write(10,'(a)') repeat(' ',4)//'</CellData>'//endl
+    write(10,'(a)') repeat(' ',2)//'</Piece>'//endl
+    write(10,'(a)') repeat(' ',2)//'</ImageData>'//endl
+    write(10,'(a)') '</VTKFile>'//endl
+
+    close(10)
+
+  end subroutine saveVTK
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !! Fill ghost cells according to border condition :
+  !! absorbant, reflexive or periodic
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine make_boundaries_gpu(data)
+    implicit none
+    ! dummy variables
+    real(fp_kind), dimension(isize, jsize, nbVar), intent(inout), device :: data
+
+    ! local variables
+    integer ::i,j,i0,j0,iVar
+    real(fp_kind) :: sign
+
+    !! take care to reverse loop order
+
+    ! boundary xmin
+    !$cuf kernel do(1) <<< *, 128 >>>
+    do j=ghostWidth+1,jsize-ghostWidth
+       do iVar=1,nbVar
+          do i=1,ghostWidth
+             sign=1.0
+             if(boundary_type_xmin==1)then
+                i0=2*ghostWidth+1-i
+                if(iVar==IU)sign=-1.0
+             else if(boundary_type_xmin==2)then
+                i0=ghostWidth+1
+             else ! periodic
+                i0=nx+i
+             end if
+             data(i,j,iVar)=data(i0,j,iVar)*sign
+          end do
+       end do
+    end do
+
+    ! boundary xmax
+    !$cuf kernel do(1) <<< *, 128 >>>
+    do j=ghostWidth+1,jsize-ghostWidth
+       do iVar=1,nbVar
+          do i=nx+ghostWidth+1,nx+2*ghostWidth
+             sign=1.0
+             if(boundary_type_xmax==1)then
+                i0=2*nx+2*ghostWidth+1-i
+                if(iVar==IU)sign=-1.0
+             else if(boundary_type_xmax==2)then
+                i0=nx+ghostWidth
+             else ! periodic
+                i0=i-nx
+             end if
+             data(i,j,iVar)=data(i0,j,iVar)*sign
+          end do
+       end do
+    end do
+
+    ! boundary ymin
+    !$cuf kernel do(1) <<< *, 128 >>>
+    do i=ghostWidth+1,isize-ghostWidth
+       do iVar=1,nbVar
+          do j=1,ghostWidth
+             sign=1.0
+             if(boundary_type_ymin==1)then
+                j0=2*ghostWidth+1-j
+                if(iVar==IV)sign=-1.0
+             else if(boundary_type_ymin==2)then
+                j0=ghostWidth+1
+             else ! periodic
+                j0=ny+j
+             end if
+             data(i,j,iVar)=data(i,j0,iVar)*sign
+          end do
+       end do
+    end do
+
+    ! boundary ymax
+    !$cuf kernel do(1) <<< *, 128 >>>
+    do i=ghostWidth+1,isize-ghostWidth
+       do iVar=1,nbVar
+          do j=ny+ghostWidth+1,ny+2*ghostWidth
+             sign=1.0
+             if(boundary_type_ymax==1)then
+                j0=2*ny+2*ghostWidth+1-j
+                if(iVar==IV)sign=-1.0
+             else if(boundary_type_ymax==2)then
+                j0=ny+ghostWidth
+             else ! periodic
+                j0=j-ny
+             end if
+             data(i,j,iVar)=data(i,j0,iVar)*sign
+          end do
+       end do
+    end do
+
+  end subroutine make_boundaries_gpu
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !! define CUDA kernels...
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  attributes(global) subroutine kernel_godunov_unsplit_2d_v0(data_in, data_out, dt)
+
+    implicit none
+
+    ! dummy variables
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(inout) :: data_in
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(inout) :: data_out
+    real(fp_kind), intent(in), value                                 :: dt
+
+    ! local variables
+
+    ! Block index
+    integer :: bx
+    integer :: by
+
+    ! Thread index
+    integer :: tx
+    integer :: ty
+
+    ! other variables
+    integer :: i,j
+    real(fp_kind) :: dtdx
+    real(fp_kind) :: dtdy
+    real(fp_kind) :: tmp
+
+    ! primitives variables
+    real(fp_kind), dimension(UNSPLIT_BLOCK_DIMX_2D, UNSPLIT_BLOCK_DIMY_2D, nbVar), shared :: q
+    
+    ! flux along y
+    real(fp_kind), dimension(UNSPLIT_BLOCK_DIMX_2D, UNSPLIT_BLOCK_DIMY_2D, nbVar), shared :: flux_y
+    
+
+    real(fp_kind), dimension(2, nbVar) :: qm, qp, qp0
+    real(fp_kind), dimension(nbVar)    :: qm1, qm2
+
+    real(fp_kind)                      :: c, cPlus, cMinus
+    integer                            :: pos
+
+    real(fp_kind), dimension(nbVar)    :: uIn, uOut, qLoc, qgdnv, flux, qleft, qright
+    real(fp_kind), dimension(4,nbVar)  :: qNeighbors
+
+
+    bx = blockIdx%x
+    by = blockIdx%y
+    tx = threadIdx%x
+    ty = threadIdx%y
+
+    i = (bx-1)*UNSPLIT_BLOCK_INNER_DIMX_2D + tx
+    j = (by-1)*UNSPLIT_BLOCK_INNER_DIMY_2D + ty
+
+    dtdx = dt / d_dx
+    dtdy = dt / d_dy
+
+    ! load U and convert to primitive variables
+    if (   i <= d_isize .and. &
+         & j <= d_jsize        ) then
+
+       ! Gather conservative variables
+       uIn(:) = data_in(i,j,:)
+       
+       ! copy input state into uOut that will become output state
+       uOut(:) = uIn(:)
+       
+       ! Convert to primitive variables (Array reshaping is not supported for device subprogram calls)
+       call constoprim_2d(uIn, qLoc, c)
+       q(tx,ty,:) = qLoc(:)
+
+    end if
+    call syncthreads()
+
+
+    if (   i > 2 .and. i <= d_isize-1 .and. tx>2 .and. tx<UNSPLIT_BLOCK_DIMX_2D .and. &
+         & j > 2 .and. j <= d_jsize-1 .and. ty>2 .and. ty<UNSPLIT_BLOCK_DIMY_2D) then
+
+       ! Characteristic tracing : compute qp0
+       qNeighbors(1,:) = q(tx+1,ty  ,:)
+       qNeighbors(2,:) = q(tx-1,ty  ,:)
+       qNeighbors(3,:) = q(tx  ,ty+1,:)
+       qNeighbors(4,:) = q(tx  ,ty-1,:)
+       
+       qLoc = q(tx,ty,:)
+       call trace_unsplit_2d(qLoc, qNeighbors, dtdx, dtdy, qm, qp0)
+
+       ! Characteristic tracing : compute qm_x[1]
+       qNeighbors(1,:) = q(tx  ,ty  ,:)
+       qNeighbors(2,:) = q(tx-2,ty  ,:)
+       qNeighbors(3,:) = q(tx-1,ty+1,:)
+       qNeighbors(4,:) = q(tx-1,ty-1,:)
+       
+       qLoc = q(tx-1,ty,:)
+       call trace_unsplit_2d(qLoc, qNeighbors, dtdx, dtdy, qm, qp)
+       qm1(:) = qm(1,:)
+
+       ! Characteristic tracing : compute qm_y[2]
+       qNeighbors(1,:) = q(tx+1,ty-1,:)
+       qNeighbors(2,:) = q(tx-1,ty-1,:)
+       qNeighbors(3,:) = q(tx  ,ty  ,:)
+       qNeighbors(4,:) = q(tx  ,ty-2,:)
+       
+       qLoc = q(tx,ty-1,:)
+       call trace_unsplit_2d(qLoc, qNeighbors, dtdx, dtdy, qm, qp)
+       qm2(:) = qm(2,:)
+
+    end if
+    call syncthreads()
+
+    !!!! re-use q as flux_x !!!!
+    q(tx,ty,:)=0
+    call syncthreads()
+
+    if(    i  > ghostWidth .and. i  <= d_isize-1             .and. &
+         & tx > ghostWidth .and. tx < UNSPLIT_BLOCK_DIMX_2D  .and. &
+         & j  > ghostWidth .and. j  <= d_jsize-1             .and. & 
+         & ty > ghostWidth .and. ty < UNSPLIT_BLOCK_DIMY_2D) then
+        
+       ! Solve Riemann problem at X-interfaces and compute fluxes
+       qleft  = qm1
+       qright = qp0(1,:)
+       call riemann_2d(qleft, qright, qgdnv, flux)
+       q(tx,ty,:) = flux
+       
+       ! Solve Riemann problem at Y-interfaces and compute fluxes
+       qleft  = qm2
+       qright = qp0(2,:)
+       
+       ! watchout swap IU and IV
+       tmp = qleft(IU)  ; qleft(IU)  = qleft(IV)  ; qleft(IV)  = tmp
+       tmp = qright(IU) ; qright(IU) = qright(IV) ; qright(IV) = tmp
+       call riemann_2d(qleft, qright, qgdnv, flux)
+       flux_y(tx,ty,:) = flux
+  
+    end if
+    call syncthreads()
+
+    if(    i  > ghostWidth .and. i  <= d_isize-ghostWidth               .and. &
+         & tx > ghostWidth .and. tx <= UNSPLIT_BLOCK_DIMX_2D-ghostWidth .and. &
+         & j  > ghostWidth .and. j  <= d_jsize-ghostWidth               .and. & 
+         & ty > ghostWidth .and. ty <= UNSPLIT_BLOCK_DIMY_2D-ghostWidth) then
+    
+      ! update U with flux_x
+      uOut(ID) = uOut(ID) + (q(tx,ty,ID)-q(tx+1,ty,ID))*dtdx
+      uOut(IP) = uOut(IP) + (q(tx,ty,IP)-q(tx+1,ty,IP))*dtdx
+      uOut(IU) = uOut(IU) + (q(tx,ty,IU)-q(tx+1,ty,IU))*dtdx
+      uOut(IV) = uOut(IV) + (q(tx,ty,IV)-q(tx+1,ty,IV))*dtdx
+  
+      ! update U with flux_y : watchout! IU and IV are swapped !
+      uOut(ID) = uOut(ID) + (flux_y(tx,ty,ID)-flux_y(tx,ty+1,ID))*dtdy
+      uOut(IP) = uOut(IP) + (flux_y(tx,ty,IP)-flux_y(tx,ty+1,IP))*dtdy
+      uOut(IU) = uOut(IU) + (flux_y(tx,ty,IV)-flux_y(tx,ty+1,IV))*dtdy
+      uOut(IV) = uOut(IV) + (flux_y(tx,ty,IU)-flux_y(tx,ty+1,IU))*dtdy
+
+      ! actually perform update on external device memory
+      data_out(i,j,:) = uOut(:)
+
+   end if
+
+  end subroutine kernel_godunov_unsplit_2d_v0
+
+end module HydroRun_gpu
