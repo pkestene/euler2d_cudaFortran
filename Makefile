@@ -16,11 +16,11 @@ F90 = pgfortran
 FFLAGS = -O4 -fast -Minform=warn -Minfo
 LDFLAGS = -O4
 
-ARCH_GPU=cc35
+ARCH_GPU=cc30
 #FFLAGS_CUDA = -v -O3 -Mcuda -Mcuda=6.5 -Mcuda=$(ARCH_GPU) -Mcuda=ptxinfo -ta=nvidia,fastmath,mul24,maxregcount:48,time -Minfo=all -Mpreprocess  -Mcuda=rdc
-FFLAGS_CUDA = -v -O3 -Mcuda -Mcuda=cuda6.5,$(ARCH_GPU) -Mcuda=ptxinfo -ta=nvidia,maxregcount:48,time -Minfo=all -Mpreprocess  -Mcuda=rdc -acc
+FFLAGS_CUDA = -v -O3 -Mcuda -Mcuda=cuda7.5,$(ARCH_GPU) -Mcuda=ptxinfo -ta=nvidia,maxregcount:48,time -Minfo=all -Mpreprocess  -Mcuda=rdc -acc
 #-Mcuda=keepgpu
-LDFLAGS_CUDA = -O3 -Mcuda=cuda6.5,$(ARCH_GPU) -Mcuda=rdc -acc
+LDFLAGS_CUDA = -O3 -Mcuda=cuda7.5,$(ARCH_GPU) -Mcuda=rdc -acc
 
 # PGI Debug #
 # F90 = pgfortran
