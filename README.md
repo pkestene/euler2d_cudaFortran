@@ -1,6 +1,9 @@
 # euler2d_cudaFortran
 2nd order Godunov solver for 2d Euler equations written in CUDA Fortran
 
+WARNING: this code is deprecated. You may be interested to a new version using C++/kokkos for performance portability:
+https://github.com/pkestene/euler2d_kokkos
+
 ## Short description
 
 This code solves the 2D Euler equations in a regular cartesian mesh
