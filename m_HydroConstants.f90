@@ -3,10 +3,10 @@
 !!
 !!
 !! This software is governed by the CeCILL license under French law and
-!! abiding by the rules of distribution of free software.  You can  use, 
+!! abiding by the rules of distribution of free software.  You can  use,
 !! modify and/ or redistribute the software under the terms of the CeCILL
 !! license as circulated by CEA, CNRS and INRIA at the following URL
-!! "http://www.cecill.info". 
+!! "http://www.cecill.info".
 !!
 !! The fact that you are presently reading this means that you have had
 !! knowledge of the CeCILL license and that you accept its terms.
@@ -30,10 +30,10 @@ module HydroConstants
   ! used to initialize riemannSolverType in HydroParameters module
   integer(int_kind), parameter :: APPROX=0 !< quasi-exact Riemann solver
   integer(int_kind), parameter :: HLL=1    !< HLL  hydro Riemann solver
-  integer(int_kind), parameter :: HLLC=2   !< HLLC hydro Riemann solver 
+  integer(int_kind), parameter :: HLLC=2   !< HLLC hydro Riemann solver
 
   ! BoundaryConditionType
-  integer(int_kind), parameter :: BC_UNDEFINED=0 
+  integer(int_kind), parameter :: BC_UNDEFINED=0
   integer(int_kind), parameter :: BC_DIRICHLET=1 !< reflecting border
   integer(int_kind), parameter :: BC_NEUMANN=2   !< absorbing border
   integer(int_kind), parameter :: BC_PERIODIC=3  !< periodic border
@@ -60,5 +60,5 @@ module HydroConstants
   real(fp_kind), parameter :: ONE_FOURTH_F = 0.25
   real(fp_kind), parameter :: ONE_F        = 1.0
   real(fp_kind), parameter :: TWO_F        = 2.0
-  
+
 end module HydroConstants

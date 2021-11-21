@@ -3,10 +3,10 @@
 !!
 !!
 !! This software is governed by the CeCILL license under French law and
-!! abiding by the rules of distribution of free software.  You can  use, 
+!! abiding by the rules of distribution of free software.  You can  use,
 !! modify and/ or redistribute the software under the terms of the CeCILL
 !! license as circulated by CEA, CNRS and INRIA at the following URL
-!! "http://www.cecill.info". 
+!! "http://www.cecill.info".
 !!
 !! The fact that you are presently reading this means that you have had
 !! knowledge of the CeCILL license and that you accept its terms.
@@ -68,7 +68,7 @@ contains
     deallocate(u,u2)
 
     if (implementationVersion .eq. 1) then
-       deallocate(q,qm_x,qm_y,qp_x,qp_y) 
+       deallocate(q,qm_x,qm_y,qp_x,qp_y)
     end if
 
 
@@ -94,28 +94,24 @@ contains
     ! for loop over inner region
     if (useU == 0) then
 
-       do j=ghostWidth+1,jsize-ghostWidth-1
-          do i=ghostWidth+1,isize-ghostWidth-1
+       do concurrent (j=ghostWidth+1:jsize-ghostWidth-1, i=ghostWidth+1:isize-ghostWidth-1)
 
-             call computePrimitives(u, i, j, c, qLoc)
-             vx = c + abs(qLoc(IU))
-             vy = c + abs(qLoc(IV))
-             invDt = max(invDt, vx/dx + vy/dy)
+          call computePrimitives(u, i, j, c, qLoc)
+          vx = c + abs(qLoc(IU))
+          vy = c + abs(qLoc(IV))
+          invDt = max(invDt, vx/dx + vy/dy)
 
-          end do
        end do
 
     else
 
-       do j=ghostWidth+1,jsize-ghostWidth-1
-          do i=ghostWidth+1,isize-ghostWidth-1
+       do concurrent (j=ghostWidth+1:jsize-ghostWidth-1, i=ghostWidth+1:isize-ghostWidth-1)
 
-             call computePrimitives(u2, i, j, c, qLoc)
-             vx = c + abs(qLoc(IU))
-             vy = c + abs(qLoc(IV))
-             invDt = max(invDt, vx/dx + vy/dy)
+          call computePrimitives(u2, i, j, c, qLoc)
+          vx = c + abs(qLoc(IU))
+          vy = c + abs(qLoc(IV))
+          invDt = max(invDt, vx/dx + vy/dy)
 
-          end do
        end do
     end if
 
@@ -203,86 +199,84 @@ contains
 
        !$omp_tmp parallel default(shared) private(qm_x,qm_y,qp_x,qp_y)
        !$omp_tmp for collapse(2) schedule(auto)
-       do j=ghostWidth+1, jsize-ghostWidth+1
-          do i=ghostWidth+1, isize-ghostWidth+1
+       do concurrent (j=ghostWidth+1: jsize-ghostWidth+1, i=ghostWidth+1: isize-ghostWidth+1)
 
-             ! compute qm, qp for the 1+2 positions
-             do pos=1,3
+          ! compute qm, qp for the 1+2 positions
+          do pos=1,3
 
-                ii=i
-                jj=j
-                if (pos==2) ii = i-1
-                if (pos==3) jj = j-1
-                call computePrimitives(data_in, ii  , jj  , c     , qLoc)
-                call computePrimitives(data_in, ii+1, jj  , cPlus , qNeighbors(1,:))
-                call computePrimitives(data_in, ii-1, jj  , cMinus, qNeighbors(2,:))
-                call computePrimitives(data_in, ii  , jj+1, cPlus , qNeighbors(3,:))
-                call computePrimitives(data_in, ii  , jj-1, cMinus, qNeighbors(4,:))
+             ii=i
+             jj=j
+             if (pos==2) ii = i-1
+             if (pos==3) jj = j-1
+             call computePrimitives(data_in, ii  , jj  , c     , qLoc)
+             call computePrimitives(data_in, ii+1, jj  , cPlus , qNeighbors(1,:))
+             call computePrimitives(data_in, ii-1, jj  , cMinus, qNeighbors(2,:))
+             call computePrimitives(data_in, ii  , jj+1, cPlus , qNeighbors(3,:))
+             call computePrimitives(data_in, ii  , jj-1, cMinus, qNeighbors(4,:))
 
-                ! compute qm, qp
-                call trace_unsplit_2d(qLoc, qNeighbors, dtdx, dtdy, qm, qp)
+             ! compute qm, qp
+             call trace_unsplit_2d(qLoc, qNeighbors, dtdx, dtdy, qm, qp)
 
-                ! store qm, qp
-                do iVar=1,nbVar
-                   qm_x(pos,iVar) = qm(1,iVar)
-                   qp_x(pos,iVar) = qp(1,iVar)
-                   qm_y(pos,iVar) = qm(2,iVar)
-                   qp_y(pos,iVar) = qp(2,iVar)
-                end do ! end do iVar
+             ! store qm, qp
+             do iVar=1,nbVar
+                qm_x(pos,iVar) = qm(1,iVar)
+                qp_x(pos,iVar) = qp(1,iVar)
+                qm_y(pos,iVar) = qm(2,iVar)
+                qp_y(pos,iVar) = qp(2,iVar)
+             end do ! end do iVar
 
-             end do !! end do pos
+          end do !! end do pos
 
-             ! Solve Riemann problem at X-interfaces and compute X-fluxes
-             qleft(ID)   = qm_x(2,ID)
-             qleft(IP)   = qm_x(2,IP)
-             qleft(IU)   = qm_x(2,IU)
-             qleft(IV)   = qm_x(2,IV)
+          ! Solve Riemann problem at X-interfaces and compute X-fluxes
+          qleft(ID)   = qm_x(2,ID)
+          qleft(IP)   = qm_x(2,IP)
+          qleft(IU)   = qm_x(2,IU)
+          qleft(IV)   = qm_x(2,IV)
 
-             qright(ID)  = qp_x(1,ID)
-             qright(IP)  = qp_x(1,IP)
-             qright(IU)  = qp_x(1,IU)
-             qright(IV)  = qp_x(1,IV)
+          qright(ID)  = qp_x(1,ID)
+          qright(IP)  = qp_x(1,IP)
+          qright(IU)  = qp_x(1,IU)
+          qright(IV)  = qp_x(1,IV)
 
-             call riemann_2d(qleft,qright,qgdnv,flux_x)
+          call riemann_2d(qleft,qright,qgdnv,flux_x)
 
-             ! Solve Riemann problem at Y-interfaces and compute Y-fluxes
-             qleft(ID)   = qm_y(3,ID)
-             qleft(IP)   = qm_y(3,IP)
-             qleft(IU)   = qm_y(3,IV) ! watchout IU, IV permutation
-             qleft(IV)   = qm_y(3,IU) ! watchout IU, IV permutation
+          ! Solve Riemann problem at Y-interfaces and compute Y-fluxes
+          qleft(ID)   = qm_y(3,ID)
+          qleft(IP)   = qm_y(3,IP)
+          qleft(IU)   = qm_y(3,IV) ! watchout IU, IV permutation
+          qleft(IV)   = qm_y(3,IU) ! watchout IU, IV permutation
 
-             qright(ID)  = qp_y(1,ID)
-             qright(IP)  = qp_y(1,IP)
-             qright(IU)  = qp_y(1,IV) ! watchout IU, IV permutation
-             qright(IV)  = qp_y(1,IU) ! watchout IU, IV permutation
+          qright(ID)  = qp_y(1,ID)
+          qright(IP)  = qp_y(1,IP)
+          qright(IU)  = qp_y(1,IV) ! watchout IU, IV permutation
+          qright(IV)  = qp_y(1,IU) ! watchout IU, IV permutation
 
-             call riemann_2d(qleft,qright,qgdnv,flux_y)
+          call riemann_2d(qleft,qright,qgdnv,flux_y)
 
-             !
-             ! update hydro array
-             !
-             data_out(i-1,j  ,ID) = data_out(i-1,j  ,ID) - flux_x(ID)*dtdx
-             data_out(i-1,j  ,IP) = data_out(i-1,j  ,IP) - flux_x(IP)*dtdx
-             data_out(i-1,j  ,IU) = data_out(i-1,j  ,IU) - flux_x(IU)*dtdx
-             data_out(i-1,j  ,IV) = data_out(i-1,j  ,IV) - flux_x(IV)*dtdx
+          !
+          ! update hydro array
+          !
+          data_out(i-1,j  ,ID) = data_out(i-1,j  ,ID) - flux_x(ID)*dtdx
+          data_out(i-1,j  ,IP) = data_out(i-1,j  ,IP) - flux_x(IP)*dtdx
+          data_out(i-1,j  ,IU) = data_out(i-1,j  ,IU) - flux_x(IU)*dtdx
+          data_out(i-1,j  ,IV) = data_out(i-1,j  ,IV) - flux_x(IV)*dtdx
 
-             data_out(i  ,j  ,ID) = data_out(i  ,j  ,ID) + flux_x(ID)*dtdx
-             data_out(i  ,j  ,IP) = data_out(i  ,j  ,IP) + flux_x(IP)*dtdx
-             data_out(i  ,j  ,IU) = data_out(i  ,j  ,IU) + flux_x(IU)*dtdx
-             data_out(i  ,j  ,IV) = data_out(i  ,j  ,IV) + flux_x(IV)*dtdx
+          data_out(i  ,j  ,ID) = data_out(i  ,j  ,ID) + flux_x(ID)*dtdx
+          data_out(i  ,j  ,IP) = data_out(i  ,j  ,IP) + flux_x(IP)*dtdx
+          data_out(i  ,j  ,IU) = data_out(i  ,j  ,IU) + flux_x(IU)*dtdx
+          data_out(i  ,j  ,IV) = data_out(i  ,j  ,IV) + flux_x(IV)*dtdx
 
-             data_out(i  ,j-1,ID) = data_out(i  ,j-1,ID) - flux_y(ID)*dtdx
-             data_out(i  ,j-1,IP) = data_out(i  ,j-1,IP) - flux_y(IP)*dtdx
-             data_out(i  ,j-1,IU) = data_out(i  ,j-1,IU) - flux_y(IV)*dtdx ! watchout IU and IV swapped
-             data_out(i  ,j-1,IV) = data_out(i  ,j-1,IV) - flux_y(IU)*dtdx ! watchout IU and IV swapped
+          data_out(i  ,j-1,ID) = data_out(i  ,j-1,ID) - flux_y(ID)*dtdy
+          data_out(i  ,j-1,IP) = data_out(i  ,j-1,IP) - flux_y(IP)*dtdy
+          data_out(i  ,j-1,IU) = data_out(i  ,j-1,IU) - flux_y(IV)*dtdy ! watchout IU and IV swapped
+          data_out(i  ,j-1,IV) = data_out(i  ,j-1,IV) - flux_y(IU)*dtdy ! watchout IU and IV swapped
 
-             data_out(i  ,j  ,ID) = data_out(i  ,j  ,ID) + flux_y(ID)*dtdx
-             data_out(i  ,j  ,IP) = data_out(i  ,j  ,IP) + flux_y(IP)*dtdx
-             data_out(i  ,j  ,IU) = data_out(i  ,j  ,IU) + flux_y(IV)*dtdx ! watchout IU and IV swapped
-             data_out(i  ,j  ,IV) = data_out(i  ,j  ,IV) + flux_y(IU)*dtdx ! watchout IU and IV swapped
+          data_out(i  ,j  ,ID) = data_out(i  ,j  ,ID) + flux_y(ID)*dtdy
+          data_out(i  ,j  ,IP) = data_out(i  ,j  ,IP) + flux_y(IP)*dtdy
+          data_out(i  ,j  ,IU) = data_out(i  ,j  ,IU) + flux_y(IV)*dtdy ! watchout IU and IV swapped
+          data_out(i  ,j  ,IV) = data_out(i  ,j  ,IV) + flux_y(IU)*dtdy ! watchout IU and IV swapped
 
-          end do ! end do j
-       end do ! end do i
+       end do ! end do j,i
 
     else if (implementationVersion == 1) then
 
@@ -354,34 +348,32 @@ contains
     dtdx = dt / dx
     dtdy = dt / dy
 
-    do j=2,jsize-1
-       do i=2,isize-1
+    do concurrent (j=2:jsize-1, i=2:isize-1)
 
-          ! get primitive variables state vector
-          do iVar=1,nbVar
-             qLoc   (iVar) = q(i  ,j  ,iVar)
-             qPlusX (iVar) = q(i+1,j  ,iVar)
-             qMinusX(iVar) = q(i-1,j  ,iVar)
-             qPlusY (iVar) = q(i  ,j+1,iVar)
-             qMinusY(iVar) = q(i  ,j-1,iVar)
-          end do
+       ! get primitive variables state vector
+       do iVar=1,nbVar
+          qLoc   (iVar) = q(i  ,j  ,iVar)
+          qPlusX (iVar) = q(i+1,j  ,iVar)
+          qMinusX(iVar) = q(i-1,j  ,iVar)
+          qPlusY (iVar) = q(i  ,j+1,iVar)
+          qMinusY(iVar) = q(i  ,j-1,iVar)
+       end do
 
-	  ! get hydro slopes dq
-          call slope_unsplit_hydro_2d(qLoc, qPlusX, qMinusX, qPlusY, qMinusY, dq)
+       ! get hydro slopes dq
+       call slope_unsplit_hydro_2d(qLoc, qPlusX, qMinusX, qPlusY, qMinusY, dq)
 
-          ! compute qm, qp
-          call trace_unsplit_hydro_2d(qLoc, dq, dtdx, dtdy, qm, qp)
+       ! compute qm, qp
+       call trace_unsplit_hydro_2d(qLoc, dq, dtdx, dtdy, qm, qp)
 
-          ! store qm, qp : only what is really needed
-          do iVar=1,nbVar
-             qm_x(i,j,iVar) = qm(1,iVar)
-             qp_x(i,j,iVar) = qp(1,iVar)
-             qm_y(i,j,iVar) = qm(2,iVar)
-             qp_y(i,j,iVar) = qp(2,iVar)
-          end do ! end do iVar
+       ! store qm, qp : only what is really needed
+       do iVar=1,nbVar
+          qm_x(i,j,iVar) = qm(1,iVar)
+          qp_x(i,j,iVar) = qp(1,iVar)
+          qm_y(i,j,iVar) = qm(2,iVar)
+          qp_y(i,j,iVar) = qp(2,iVar)
+       end do ! end do iVar
 
-       end do ! end do i
-    end do ! end do j
+    end do ! end do i,j
 
   end subroutine computeTrace
 
@@ -407,68 +399,66 @@ contains
 
     dtdx = dt / dx
     dtdy = dt / dy
-    
-    do j=ghostWidth+1,jsize-ghostWidth+1
-       do i=ghostWidth+1,isize-ghostWidth+1
-          
-          !
-          ! Solve Riemann problem at X-interfaces and compute
-          ! X-fluxes
-          !
-          qleft(ID)   = qm_x(i-1,j,ID)
-          qleft(IP)   = qm_x(i-1,j,IP)
-          qleft(IU)   = qm_x(i-1,j,IU)
-          qleft(IV)   = qm_x(i-1,j,IV)
 
-          qright(ID)  = qp_x(i  ,j,ID)
-          qright(IP)  = qp_x(i  ,j,IP)
-          qright(IU)  = qp_x(i  ,j,IU)
-          qright(IV)  = qp_x(i  ,j,IV)
+    do concurrent(j=ghostWidth+1:jsize-ghostWidth+1, i=ghostWidth+1:isize-ghostWidth+1)
 
-          ! compute hydro flux_x
-          call riemann_2d(qleft,qright,qgdnv,flux_x)
+       !
+       ! Solve Riemann problem at X-interfaces and compute
+       ! X-fluxes
+       !
+       qleft(ID)   = qm_x(i-1,j,ID)
+       qleft(IP)   = qm_x(i-1,j,IP)
+       qleft(IU)   = qm_x(i-1,j,IU)
+       qleft(IV)   = qm_x(i-1,j,IV)
 
-	  !
-          ! Solve Riemann problem at Y-interfaces and compute Y-fluxes
-          !
-          qleft(ID)   = qm_y(i,j-1,ID)
-          qleft(IP)   = qm_y(i,j-1,IP)
-          qleft(IU)   = qm_y(i,j-1,IV) ! watchout IU, IV permutation
-          qleft(IV)   = qm_y(i,j-1,IU) ! watchout IU, IV permutation
+       qright(ID)  = qp_x(i  ,j,ID)
+       qright(IP)  = qp_x(i  ,j,IP)
+       qright(IU)  = qp_x(i  ,j,IU)
+       qright(IV)  = qp_x(i  ,j,IV)
 
-          qright(ID)  = qp_y(i,j  ,ID)
-          qright(IP)  = qp_y(i,j  ,IP)
-          qright(IU)  = qp_y(i,j  ,IV) ! watchout IU, IV permutation
-          qright(IV)  = qp_y(i,j  ,IU) ! watchout IU, IV permutation
+       ! compute hydro flux_x
+       call riemann_2d(qleft,qright,qgdnv,flux_x)
 
-          ! compute hydro flux_y
-          call riemann_2d(qleft,qright,qgdnv,flux_y)
+       !
+       ! Solve Riemann problem at Y-interfaces and compute Y-fluxes
+       !
+       qleft(ID)   = qm_y(i,j-1,ID)
+       qleft(IP)   = qm_y(i,j-1,IP)
+       qleft(IU)   = qm_y(i,j-1,IV) ! watchout IU, IV permutation
+       qleft(IV)   = qm_y(i,j-1,IU) ! watchout IU, IV permutation
 
-          !
-          ! update hydro array
-          !
-          data(i-1,j  ,ID) = data(i-1,j  ,ID) - flux_x(ID)*dtdx
-          data(i-1,j  ,IP) = data(i-1,j  ,IP) - flux_x(IP)*dtdx
-          data(i-1,j  ,IU) = data(i-1,j  ,IU) - flux_x(IU)*dtdx
-          data(i-1,j  ,IV) = data(i-1,j  ,IV) - flux_x(IV)*dtdx
+       qright(ID)  = qp_y(i,j  ,ID)
+       qright(IP)  = qp_y(i,j  ,IP)
+       qright(IU)  = qp_y(i,j  ,IV) ! watchout IU, IV permutation
+       qright(IV)  = qp_y(i,j  ,IU) ! watchout IU, IV permutation
 
-          data(i  ,j  ,ID) = data(i  ,j  ,ID) + flux_x(ID)*dtdx
-          data(i  ,j  ,IP) = data(i  ,j  ,IP) + flux_x(IP)*dtdx
-          data(i  ,j  ,IU) = data(i  ,j  ,IU) + flux_x(IU)*dtdx
-          data(i  ,j  ,IV) = data(i  ,j  ,IV) + flux_x(IV)*dtdx
+       ! compute hydro flux_y
+       call riemann_2d(qleft,qright,qgdnv,flux_y)
 
-          data(i  ,j-1,ID) = data(i  ,j-1,ID) - flux_y(ID)*dtdy
-          data(i  ,j-1,IP) = data(i  ,j-1,IP) - flux_y(IP)*dtdy
-          data(i  ,j-1,IU) = data(i  ,j-1,IU) - flux_y(IV)*dtdy ! watchout IU and IV swapped
-          data(i  ,j-1,IV) = data(i  ,j-1,IV) - flux_y(IU)*dtdy ! watchout IU and IV swapped
+       !
+       ! update hydro array
+       !
+       data(i-1,j  ,ID) = data(i-1,j  ,ID) - flux_x(ID)*dtdx
+       data(i-1,j  ,IP) = data(i-1,j  ,IP) - flux_x(IP)*dtdx
+       data(i-1,j  ,IU) = data(i-1,j  ,IU) - flux_x(IU)*dtdx
+       data(i-1,j  ,IV) = data(i-1,j  ,IV) - flux_x(IV)*dtdx
 
-          data(i  ,j  ,ID) = data(i  ,j  ,ID) + flux_y(ID)*dtdy
-          data(i  ,j  ,IP) = data(i  ,j  ,IP) + flux_y(IP)*dtdy
-          data(i  ,j  ,IU) = data(i  ,j  ,IU) + flux_y(IV)*dtdy ! watchout IU and IV swapped
-          data(i  ,j  ,IV) = data(i  ,j  ,IV) + flux_y(IU)*dtdy ! watchout IU and IV swapped
+       data(i  ,j  ,ID) = data(i  ,j  ,ID) + flux_x(ID)*dtdx
+       data(i  ,j  ,IP) = data(i  ,j  ,IP) + flux_x(IP)*dtdx
+       data(i  ,j  ,IU) = data(i  ,j  ,IU) + flux_x(IU)*dtdx
+       data(i  ,j  ,IV) = data(i  ,j  ,IV) + flux_x(IV)*dtdx
 
-       end do ! end do i
-    end do ! end do j
+       data(i  ,j-1,ID) = data(i  ,j-1,ID) - flux_y(ID)*dtdy
+       data(i  ,j-1,IP) = data(i  ,j-1,IP) - flux_y(IP)*dtdy
+       data(i  ,j-1,IU) = data(i  ,j-1,IU) - flux_y(IV)*dtdy ! watchout IU and IV swapped
+       data(i  ,j-1,IV) = data(i  ,j-1,IV) - flux_y(IU)*dtdy ! watchout IU and IV swapped
+
+       data(i  ,j  ,ID) = data(i  ,j  ,ID) + flux_y(ID)*dtdy
+       data(i  ,j  ,IP) = data(i  ,j  ,IP) + flux_y(IP)*dtdy
+       data(i  ,j  ,IU) = data(i  ,j  ,IU) + flux_y(IV)*dtdy ! watchout IU and IV swapped
+       data(i  ,j  ,IV) = data(i  ,j  ,IV) + flux_y(IU)*dtdy ! watchout IU and IV swapped
+
+    end do ! end do i,j
 
   end subroutine computeFluxesAndUpdate
 
@@ -486,21 +476,19 @@ contains
     integer :: i,j
     real(fp_kind) :: tmp
 
-    do j=jmin,jmax
-       do i=imin,imax
-          tmp = 1.0*(i-ghostWidth-1)/nx + 1.0*(j-ghostWidth-1)/ny
-          if (tmp .gt. 0.5) then 
-             data(i,j,ID)=1.0
-             data(i,j,IP)=1.0/(gamma0-1.0)
-             data(i,j,IU)=0.0
-             data(i,j,IV)=0.0
-          else
-             data(i,j,ID)=0.125
-             data(i,j,IP)=0.14/(gamma0-1.0)
-             data(i,j,IU)=0.0
-             data(i,j,IV)=0.0               
-          end if
-       end do
+    do concurrent (j=jmin:jmax, i=imin:imax)
+       tmp = 1.0*(i-ghostWidth-1)/nx + 1.0*(j-ghostWidth-1)/ny
+       if (tmp .gt. 0.5) then
+          data(i,j,ID)=1.0
+          data(i,j,IP)=1.0/(gamma0-1.0)
+          data(i,j,IU)=0.0
+          data(i,j,IV)=0.0
+       else
+          data(i,j,ID)=0.125
+          data(i,j,IP)=0.14/(gamma0-1.0)
+          data(i,j,IU)=0.0
+          data(i,j,IV)=0.0
+       end if
     end do
 
   end subroutine init_implode

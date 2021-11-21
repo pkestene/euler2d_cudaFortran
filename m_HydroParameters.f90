@@ -3,10 +3,10 @@
 !!
 !!
 !! This software is governed by the CeCILL license under French law and
-!! abiding by the rules of distribution of free software.  You can  use, 
+!! abiding by the rules of distribution of free software.  You can  use,
 !! modify and/ or redistribute the software under the terms of the CeCILL
 !! license as circulated by CEA, CNRS and INRIA at the following URL
-!! "http://www.cecill.info". 
+!! "http://www.cecill.info".
 !!
 !! The fact that you are presently reading this means that you have had
 !! knowledge of the CeCILL license and that you accept its terms.
@@ -27,7 +27,7 @@ module HydroParameters
   !! geometry parameters
   integer(int_kind) :: nx=0     !< logical size along X (without ghost cells).
   integer(int_kind) :: ny=0     !< logical size along Y (without ghost cells).
-  integer(int_kind), parameter :: ghostWidth=2 
+  integer(int_kind), parameter :: ghostWidth=2
   integer(int_kind) :: imin=0   !< index minimum at X border
   integer(int_kind) :: imax=0   !< index maximum at X border
   integer(int_kind) :: jmin=0   !< index minimum at Y border
@@ -57,7 +57,7 @@ module HydroParameters
   real   (fp_kind) :: gamma6
   real   (fp_kind) :: cfl           !< Courant-Friedrich-Lewy parameter.
   real   (fp_kind) :: slope_type    !< type of slope computation (2 for second order scheme).
-  integer(int_kind):: iorder        !< 
+  integer(int_kind):: iorder        !<
   real   (fp_kind) :: smallr        !< small density cut-off
   real   (fp_kind) :: smallc        !< small speed of sound cut-off
   real   (fp_kind) :: smallp        !< small pressure cut-off
@@ -71,17 +71,17 @@ module HydroParameters
   integer(int_kind),parameter  ::  nbVar=4  !< number of fields in simulation (density, energy, vx, vy)
   integer(int_kind)  :: implementationVersion=0 !< triggers which implementation to use (currently 2 versions)
 
-  
+
   contains
 
     subroutine initHydroParameters()
-      
+
       implicit none
 
       ! local variables
       integer(int_kind) :: narg
       character(LEN=80) :: inputFilename
-   
+
       ! declare namelist
       namelist/run/tEnd,nStepmax,nOutput
       namelist/mesh/nx,ny,boundary_type_xmin,boundary_type_xmax,boundary_type_ymin,boundary_type_ymax
@@ -134,7 +134,7 @@ module HydroParameters
       end if
 
     end subroutine initHydroParameters
-    
+
     ! dump hydro parameters on stdout
     subroutine printHydroParameters()
 
@@ -146,7 +146,7 @@ module HydroParameters
       write(*,*) 'dx : ', dx
       write(*,*) 'dy : ', dy
       write(*,*) 'imin : ', imin, 'imax : ', imax
-      write(*,*) 'jmin : ', jmin, 'jmax : ', jmax      
+      write(*,*) 'jmin : ', jmin, 'jmax : ', jmax
       write(*,*) 'nStepmax,tEnd,nOutput : ',nStepmax,tEnd,nOutput
       write(*,*) 'gamma0,cfl : ',gamma0,cfl
       write(*,*) 'smallr,smallc,niter_riemann :',smallr,smallc,niter_riemann
