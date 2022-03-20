@@ -71,7 +71,6 @@ contains
        deallocate(q,qm_x,qm_y,qp_x,qp_y)
     end if
 
-
   end subroutine cleanupHydroRun
 
   !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -94,7 +93,7 @@ contains
     ! for loop over inner region
     if (useU == 0) then
 
-       do concurrent (j=ghostWidth+1:jsize-ghostWidth-1, i=ghostWidth+1:isize-ghostWidth-1)
+       do concurrent (j=ghostWidth+1:jsize-ghostWidth-1, i=ghostWidth+1:isize-ghostWidth-1) reduce(max:invDt)
 
           call computePrimitives(u, i, j, c, qLoc)
           vx = c + abs(qLoc(IU))
@@ -105,7 +104,7 @@ contains
 
     else
 
-       do concurrent (j=ghostWidth+1:jsize-ghostWidth-1, i=ghostWidth+1:isize-ghostWidth-1)
+       do concurrent (j=ghostWidth+1:jsize-ghostWidth-1, i=ghostWidth+1:isize-ghostWidth-1) reduce(max:invDt)
 
           call computePrimitives(u2, i, j, c, qLoc)
           vx = c + abs(qLoc(IU))
@@ -159,7 +158,7 @@ contains
     real(fp_kind) :: dtdy
 
     ! Local variables for trace computation
-    ! we need to store qm/qp for current position i,j and i-1,j and i,j-1 
+    ! we need to store qm/qp for current position i,j and i-1,j and i,j-1
     ! that is 1+2=3 positions in total
     real(fp_kind), dimension(3, nbVar) :: qm_x
     real(fp_kind), dimension(3, nbVar) :: qm_y

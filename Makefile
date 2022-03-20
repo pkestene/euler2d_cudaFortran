@@ -11,21 +11,17 @@
 # #FFLAGS = -g -Wall
 # LDFLAGS = -O3
 
-# ######## NVIDIA ########
+# ######## NVIDIA stdpar multicore ########
+#F90 = nvfortran
+#FFLAGS = -O3 -stdpar=multicore -acc=multicore  -Minform=warn -Minfo
+#LDFLAGS = -O3 -acc=multicore
+
+# ######## NVIDIA stdpar gpu ########
 F90 = nvfortran
-#FFLAGS = -O3 -stdpar=multicore -Minform=warn -Minfo
-FFLAGS = -O3 -stdpar=gpu -Minform=warn -Minfo
-LDFLAGS = -O3
-
 ARCH_GPU=cc75
-#FFLAGS_CUDA = -v -O3 -Mcuda -Mcuda=6.5 -Mcuda=$(ARCH_GPU) -Mcuda=ptxinfo -ta=nvidia,fastmath,mul24,maxregcount:48,time -Minfo=all -Mpreprocess  -Mcuda=rdc
-#FFLAGS_CUDA = -v -O3 -Mcuda -Mcuda=cuda7.5,$(ARCH_GPU) -Mcuda=ptxinfo -ta=nvidia,maxregcount:48,time -Minfo=all -Mpreprocess  -Mcuda=rdc -acc
-#-Mcuda=keepgpu
-#LDFLAGS_CUDA = -O3 -Mcuda=cuda7.5,$(ARCH_GPU) -Mcuda=rdc -acc
-
-# ARCH_GPU=cc35
-# FFLAGS_CUDA = -g -v -Mcuda -Mcuda=5.5 -Mcuda=$(ARCH_GPU) -Mcuda=ptxinfo -ta=nvidia,fastmath,mul24,maxregcount:48,time -Minfo=all -Mpreprocess -Mcuda=keepgpu
-# LDFLAGS_CUDA = -Mcuda=5.5 -Mcuda=$(ARCH_GPU)
+CUDA_VERSION=11.6
+FFLAGS = -O3 -stdpar=gpu -gpu=$(ARCH_GPU),cuda$(CUDA_VERSION) -acc=gpu -gpu=rdc -Minform=warn -Minfo
+LDFLAGS = -O3 -stdpar=gpu -acc=gpu -gpu=rdc
 
 SRCDIR = .
 
@@ -43,7 +39,7 @@ CUDA_OBJ = $(CUDA_SRC:.f90=.o)
 all: euler2d
 
 euler2d: $(CUDA_OBJ)
-	$(F90) $(LDFLAGS_CUDA) $(CUDA_OBJ) -o $@
+	$(F90) $(LDFLAGS) $(CUDA_OBJ) -o $@
 
 clean:
 	rm -f *.o *.mod euler2d
@@ -53,4 +49,3 @@ cleanall: clean
 
 %.o:    $(SRCDIR)/%.f90
 	$(F90) $(FFLAGS) -c $<
-

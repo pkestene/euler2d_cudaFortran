@@ -25,9 +25,13 @@ module HydroUtils
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !! equation of state (ideal gas)
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    !$acc routine(eos)
     pure subroutine eos(rho,eint,p,c)
 
       implicit none
+
+      !$acc declare create(smallp)
+      !$acc declare create(gamma0)
 
       ! dummy variables
       real(fp_kind), intent(in)    :: rho  !< density
@@ -43,6 +47,7 @@ module HydroUtils
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !! Compute primitive variables
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    !$acc routine(computePrimitives)
     pure subroutine computePrimitives(data,i,j,c,qLoc)
 
       implicit none
@@ -57,6 +62,8 @@ module HydroUtils
       real(fp_kind), dimension(nbVar) :: uLoc ! local conservative variables
       real(fp_kind)                   :: eken ! kinetic energy
       real(fp_kind)                   :: e    ! total energy
+
+      !$acc declare create(smallr,smallp,gamma0)
 
       ! retrieve u local
       uLoc(ID) = data(i,j,ID)
@@ -91,9 +98,12 @@ module HydroUtils
     !! qm         : qm state (one per dimension)
     !! qp         : qp state (one per dimension)
     !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    !$acc routine(trace_unsplit_2d)
     pure subroutine trace_unsplit_2d(qLoc, qNeighbors, dtdx, dtdy, qm, qp)
 
       implicit none
+
+      !$acc declare create(smallr,gamma0)
 
       ! dummy variables
       real(fp_kind), dimension(nbVar)   , intent(in)  :: qLoc
@@ -182,9 +192,12 @@ module HydroUtils
     !! \param[out] qm
     !! \param[out] qp
     !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    !$acc routine(trace_unsplit_hydro_2d)
     pure subroutine trace_unsplit_hydro_2d(qLoc, dq, dtdx, dtdy, qm, qp)
 
       implicit none
+
+      !$acc declare create(smallr,gamma0)
 
       ! dummy variables
       real(fp_kind), dimension(nbVar)   , intent(in)  :: qLoc
@@ -278,6 +291,7 @@ module HydroUtils
     !! \param[out] dq      : reference to an array returning the X and Y slopes
     !!
     !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    !$acc routine(slope_unsplit_hydro_2d)
     pure subroutine slope_unsplit_hydro_2d(q, qPlusX, qMinusX, qPlusY, qMinusY, dq)
 
       implicit none
@@ -350,6 +364,7 @@ module HydroUtils
     !! Riemann solver (compute fluxes at cell
     !! this is actually the approx solver
     !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    !$acc routine(riemann_2d)
     pure subroutine riemann_2d(qleft,qright,qgdnv,flux)
 
       implicit none
@@ -497,6 +512,7 @@ module HydroUtils
     !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !! convert godunov state into flux
     !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    !$acc routine(cmpflx)
     pure subroutine cmpflx(qgdnv, flux)
 
       implicit none
@@ -531,6 +547,7 @@ module HydroUtils
     !! this is actually the HLLC solver
     !! TODO : add solver approx
     !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    !$acc routine(riemann_2d_hllc)
     pure subroutine riemann_2d_hllc(qleft,qright,qgdnv,flux)
 
       implicit none
