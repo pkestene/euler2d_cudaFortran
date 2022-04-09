@@ -30,9 +30,6 @@ module HydroUtils
 
       implicit none
 
-      !$acc declare create(smallp)
-      !$acc declare create(gamma0)
-
       ! dummy variables
       real(fp_kind), intent(in)    :: rho  !< density
       real(fp_kind), intent(in)    :: eint !< internal energy
@@ -63,8 +60,6 @@ module HydroUtils
       real(fp_kind)                   :: eken ! kinetic energy
       real(fp_kind)                   :: e    ! total energy
 
-      !$acc declare create(smallr,smallp,gamma0)
-
       ! retrieve u local
       uLoc(ID) = data(i,j,ID)
       uLoc(IP) = data(i,j,IP)
@@ -72,7 +67,12 @@ module HydroUtils
       uLoc(IV) = data(i,j,IV)
 
       ! compute primitive variables
-      qLoc(ID) = max(uLoc(ID), smallr)
+      if (uLoc(ID) > smallr) then
+         qLoc(ID) = uLoc(ID)
+      else
+         qLoc(ID) = smallr
+      end if
+      !qLoc(ID) = max(uLoc(ID), smallr)
       qLoc(IU) = uLoc(IU) / qLoc(ID)
       qLoc(IV) = uLoc(IV) / qLoc(ID)
 
@@ -102,8 +102,6 @@ module HydroUtils
     pure subroutine trace_unsplit_2d(qLoc, qNeighbors, dtdx, dtdy, qm, qp)
 
       implicit none
-
-      !$acc declare create(smallr,gamma0)
 
       ! dummy variables
       real(fp_kind), dimension(nbVar)   , intent(in)  :: qLoc
@@ -196,8 +194,6 @@ module HydroUtils
     pure subroutine trace_unsplit_hydro_2d(qLoc, dq, dtdx, dtdy, qm, qp)
 
       implicit none
-
-      !$acc declare create(smallr,gamma0)
 
       ! dummy variables
       real(fp_kind), dimension(nbVar)   , intent(in)  :: qLoc

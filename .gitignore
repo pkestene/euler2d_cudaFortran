@@ -2,3 +2,4 @@
 *.mod
 *.vti
 euler2d_gpu
+euler2d_stdpar*

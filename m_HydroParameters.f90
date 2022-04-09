@@ -71,6 +71,7 @@ module HydroParameters
   integer(int_kind),parameter  ::  nbVar=4  !< number of fields in simulation (density, energy, vx, vy)
   integer(int_kind)  :: implementationVersion=0 !< triggers which implementation to use (currently 2 versions)
 
+  !$acc declare copyin(smallr,smallp,smallpp,smallc,gamma0,gamma6,isize,jsize,slope_type,niter_riemann)
 
   contains
 
@@ -132,6 +133,8 @@ module HydroParameters
       else
          write(*,*) 'Using implementation version', implementationVersion
       end if
+
+      !$acc update device(smallr,smallp,smallpp,smallc,gamma0,gamma6,isize,jsize,slope_type,niter_riemann)
 
     end subroutine initHydroParameters
 

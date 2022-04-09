@@ -12,15 +12,17 @@
 # LDFLAGS = -O3
 
 # ######## NVIDIA stdpar multicore ########
+#SUFFIX=_stdpar_cpu
 #F90 = nvfortran
 #FFLAGS = -O3 -stdpar=multicore -acc=multicore  -Minform=warn -Minfo
 #LDFLAGS = -O3 -acc=multicore
 
 # ######## NVIDIA stdpar gpu ########
+SUFFIX=_stdpar_gpu
 F90 = nvfortran
 ARCH_GPU=cc75
 CUDA_VERSION=11.6
-FFLAGS = -O3 -stdpar=gpu -gpu=$(ARCH_GPU),cuda$(CUDA_VERSION) -acc=gpu -gpu=rdc -Minform=warn -Minfo
+FFLAGS = -O3 -stdpar=gpu -gpu=$(ARCH_GPU),cuda$(CUDA_VERSION) -acc=gpu -gpu=rdc,managed -Minform=warn -Minfo
 LDFLAGS = -O3 -stdpar=gpu -acc=gpu -gpu=rdc
 
 SRCDIR = .
@@ -39,10 +41,10 @@ CUDA_OBJ = $(CUDA_SRC:.f90=.o)
 all: euler2d
 
 euler2d: $(CUDA_OBJ)
-	$(F90) $(LDFLAGS) $(CUDA_OBJ) -o $@
+	$(F90) $(LDFLAGS) $(CUDA_OBJ) -o $@$(SUFFIX)
 
 clean:
-	rm -f *.o *.mod euler2d
+	rm -f *.o *.mod euler2d$(SUFFIX)
 
 cleanall: clean
 	rm -f *.vti *.*.gpu *.*.h crt1.reg.c
