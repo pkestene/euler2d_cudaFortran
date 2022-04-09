@@ -37,15 +37,15 @@ contains
 
 
     ! memory allocation
-    allocate( u (isize, jsize, nbVar) )
-    allocate( u2(isize, jsize, nbVar) )
+    allocate( u (params%isize, params%jsize, nbVar) )
+    allocate( u2(params%isize, params%jsize, nbVar) )
 
     if (implementationVersion .eq. 1) then
-       allocate( q   (isize, jsize, nbVar) )
-       allocate( qm_x(isize, jsize, nbVar) )
-       allocate( qm_y(isize, jsize, nbVar) )
-       allocate( qp_x(isize, jsize, nbVar) )
-       allocate( qp_y(isize, jsize, nbVar) )
+       allocate( q   (params%isize, params%jsize, nbVar) )
+       allocate( qm_x(params%isize, params%jsize, nbVar) )
+       allocate( qm_y(params%isize, params%jsize, nbVar) )
+       allocate( qp_x(params%isize, params%jsize, nbVar) )
+       allocate( qp_y(params%isize, params%jsize, nbVar) )
     end if
 
     ! initialize u (at t=0)
@@ -93,9 +93,9 @@ contains
     ! for loop over inner region
     if (useU == 0) then
 
-       do concurrent (j=ghostWidth+1:jsize-ghostWidth-1, i=ghostWidth+1:isize-ghostWidth-1) reduce(max:invDt)
+       do concurrent (j=ghostWidth+1:params%jsize-ghostWidth-1, i=ghostWidth+1:params%isize-ghostWidth-1) reduce(max:invDt)
 
-          call computePrimitives(u, i, j, c, qLoc)
+          call computePrimitives(params, u, i, j, c, qLoc)
           vx = c + abs(qLoc(IU))
           vy = c + abs(qLoc(IV))
           invDt = max(invDt, vx/dx + vy/dy)
@@ -104,9 +104,9 @@ contains
 
     else
 
-       do concurrent (j=ghostWidth+1:jsize-ghostWidth-1, i=ghostWidth+1:isize-ghostWidth-1) reduce(max:invDt)
+       do concurrent (j=ghostWidth+1:params%jsize-ghostWidth-1, i=ghostWidth+1:params%isize-ghostWidth-1) reduce(max:invDt)
 
-          call computePrimitives(u2, i, j, c, qLoc)
+          call computePrimitives(params, u2, i, j, c, qLoc)
           vx = c + abs(qLoc(IU))
           vy = c + abs(qLoc(IV))
           invDt = max(invDt, vx/dx + vy/dy)
@@ -114,7 +114,7 @@ contains
        end do
     end if
 
-    dt = cfl / invDt
+    dt = params%cfl / invDt
 
   end subroutine compute_dt
 
@@ -147,8 +147,8 @@ contains
     implicit none
 
     ! dummy variables
-    real(fp_kind), dimension(isize, jsize, nbVar), intent(inout) :: data_in
-    real(fp_kind), dimension(isize, jsize, nbVar), intent(inout) :: data_out
+    real(fp_kind), dimension(params%isize, params%jsize, nbVar), intent(inout) :: data_in
+    real(fp_kind), dimension(params%isize, params%jsize, nbVar), intent(inout) :: data_out
     real(fp_kind)                  , intent(in)    :: dt
 
     ! local variables
@@ -198,7 +198,7 @@ contains
 
        !$omp_tmp parallel default(shared) private(qm_x,qm_y,qp_x,qp_y)
        !$omp_tmp for collapse(2) schedule(auto)
-       do concurrent (j=ghostWidth+1: jsize-ghostWidth+1, i=ghostWidth+1: isize-ghostWidth+1)
+       do concurrent (j=ghostWidth+1: params%jsize-ghostWidth+1, i=ghostWidth+1: params%isize-ghostWidth+1)
 
           ! compute qm, qp for the 1+2 positions
           do pos=1,3
@@ -207,14 +207,14 @@ contains
              jj=j
              if (pos==2) ii = i-1
              if (pos==3) jj = j-1
-             call computePrimitives(data_in, ii  , jj  , c     , qLoc)
-             call computePrimitives(data_in, ii+1, jj  , cPlus , qNeighbors(1,:))
-             call computePrimitives(data_in, ii-1, jj  , cMinus, qNeighbors(2,:))
-             call computePrimitives(data_in, ii  , jj+1, cPlus , qNeighbors(3,:))
-             call computePrimitives(data_in, ii  , jj-1, cMinus, qNeighbors(4,:))
+             call computePrimitives(params, data_in, ii  , jj  , c     , qLoc)
+             call computePrimitives(params, data_in, ii+1, jj  , cPlus , qNeighbors(1,:))
+             call computePrimitives(params, data_in, ii-1, jj  , cMinus, qNeighbors(2,:))
+             call computePrimitives(params, data_in, ii  , jj+1, cPlus , qNeighbors(3,:))
+             call computePrimitives(params, data_in, ii  , jj-1, cMinus, qNeighbors(4,:))
 
              ! compute qm, qp
-             call trace_unsplit_2d(qLoc, qNeighbors, dtdx, dtdy, qm, qp)
+             call trace_unsplit_2d(qLoc, qNeighbors, dtdx, dtdy, qm, qp, params)
 
              ! store qm, qp
              do iVar=1,nbVar
@@ -237,7 +237,7 @@ contains
           qright(IU)  = qp_x(1,IU)
           qright(IV)  = qp_x(1,IV)
 
-          call riemann_2d(qleft,qright,qgdnv,flux_x)
+          call riemann_2d(qleft,qright,qgdnv,flux_x, params)
 
           ! Solve Riemann problem at Y-interfaces and compute Y-fluxes
           qleft(ID)   = qm_y(3,ID)
@@ -250,7 +250,7 @@ contains
           qright(IU)  = qp_y(1,IV) ! watchout IU, IV permutation
           qright(IV)  = qp_y(1,IU) ! watchout IU, IV permutation
 
-          call riemann_2d(qleft,qright,qgdnv,flux_y)
+          call riemann_2d(qleft,qright,qgdnv,flux_y, params)
 
           !
           ! update hydro array
@@ -301,7 +301,7 @@ contains
     implicit none
 
     ! dummy variables
-    real(fp_kind), dimension(isize, jsize, nbVar), intent(inout) :: data
+    real(fp_kind), dimension(params%isize, params%jsize, nbVar), intent(inout) :: data
 
     ! local variables
     ! primitive variable state vector
@@ -309,10 +309,10 @@ contains
     real(fp_kind)                   :: c
     integer :: i,j
 
-    do j=1,jsize
-       do i=1,isize
+    do j=1,params%jsize
+       do i=1,params%isize
 
-          call computePrimitives(data, i, j, c, qLoc)
+          call computePrimitives(params, data, i, j, c, qLoc)
 
           ! copy q state in q global
           q(i,j,:) = qLoc
@@ -347,7 +347,7 @@ contains
     dtdx = dt / dx
     dtdy = dt / dy
 
-    do concurrent (j=2:jsize-1, i=2:isize-1)
+    do concurrent (j=2:params%jsize-1, i=2:params%isize-1)
 
        ! get primitive variables state vector
        do iVar=1,nbVar
@@ -359,10 +359,10 @@ contains
        end do
 
        ! get hydro slopes dq
-       call slope_unsplit_hydro_2d(qLoc, qPlusX, qMinusX, qPlusY, qMinusY, dq)
+       call slope_unsplit_hydro_2d(qLoc, qPlusX, qMinusX, qPlusY, qMinusY, dq, params)
 
        ! compute qm, qp
-       call trace_unsplit_hydro_2d(qLoc, dq, dtdx, dtdy, qm, qp)
+       call trace_unsplit_hydro_2d(qLoc, dq, dtdx, dtdy, qm, qp, params)
 
        ! store qm, qp : only what is really needed
        do iVar=1,nbVar
@@ -384,7 +384,7 @@ contains
     implicit none
 
     ! dummy variables
-    real(fp_kind), dimension(isize, jsize, nbVar), intent(inout) :: data
+    real(fp_kind), dimension(params%isize, params%jsize, nbVar), intent(inout) :: data
     real(fp_kind), intent(in)    :: dt
 
     ! local variables
@@ -399,7 +399,7 @@ contains
     dtdx = dt / dx
     dtdy = dt / dy
 
-    do concurrent(j=ghostWidth+1:jsize-ghostWidth+1, i=ghostWidth+1:isize-ghostWidth+1)
+    do concurrent(j=ghostWidth+1:params%jsize-ghostWidth+1, i=ghostWidth+1:params%isize-ghostWidth+1)
 
        !
        ! Solve Riemann problem at X-interfaces and compute
@@ -416,7 +416,7 @@ contains
        qright(IV)  = qp_x(i  ,j,IV)
 
        ! compute hydro flux_x
-       call riemann_2d(qleft,qright,qgdnv,flux_x)
+       call riemann_2d(qleft,qright,qgdnv,flux_x, params)
 
        !
        ! Solve Riemann problem at Y-interfaces and compute Y-fluxes
@@ -432,7 +432,7 @@ contains
        qright(IV)  = qp_y(i,j  ,IU) ! watchout IU, IV permutation
 
        ! compute hydro flux_y
-       call riemann_2d(qleft,qright,qgdnv,flux_y)
+       call riemann_2d(qleft,qright,qgdnv,flux_y, params)
 
        !
        ! update hydro array
@@ -469,7 +469,7 @@ contains
     implicit none
 
     ! dummy variables
-    real(fp_kind), dimension(isize, jsize, nbVar), intent(inout) :: data
+    real(fp_kind), dimension(params%isize, params%jsize, nbVar), intent(inout) :: data
 
     ! local variables
     integer :: i,j
@@ -479,12 +479,12 @@ contains
        tmp = 1.0*(i-ghostWidth-1)/nx + 1.0*(j-ghostWidth-1)/ny
        if (tmp .gt. 0.5) then
           data(i,j,ID)=1.0
-          data(i,j,IP)=1.0/(gamma0-1.0)
+          data(i,j,IP)=1.0/(params%gamma0-1.0)
           data(i,j,IU)=0.0
           data(i,j,IV)=0.0
        else
           data(i,j,ID)=0.125
-          data(i,j,IP)=0.14/(gamma0-1.0)
+          data(i,j,IP)=0.14/(params%gamma0-1.0)
           data(i,j,IU)=0.0
           data(i,j,IV)=0.0
        end if
@@ -498,7 +498,7 @@ contains
   subroutine saveVTK(data,iStep)
     implicit none
     ! dummy variables
-    real   (fp_kind), dimension(isize, jsize, nbVar), intent(inout) :: data
+    real   (fp_kind), dimension(params%isize, params%jsize, nbVar), intent(inout) :: data
     integer(int_kind) :: iStep
 
     ! local variables
@@ -569,7 +569,7 @@ contains
   subroutine make_boundaries(data)
     implicit none
     ! dummy variables
-    real(fp_kind), dimension(isize, jsize, nbVar), intent(inout) :: data
+    real(fp_kind), dimension(params%isize, params%jsize, nbVar), intent(inout) :: data
 
     ! local variables
     integer ::i,j,i0,j0,iVar

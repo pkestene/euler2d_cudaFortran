@@ -19,6 +19,24 @@ module HydroParameters
   use HydroPrecision
   use HydroConstants
 
+  implicit none
+
+  type HydroPar
+     !! hydro (numerical scheme) parameters
+     real   (fp_kind) :: gamma0        !< specific heat capacity ratio (adiabatic index)
+     real   (fp_kind) :: gamma6
+     real   (fp_kind) :: cfl           !< Courant-Friedrich-Lewy parameter.
+     real   (fp_kind) :: slope_type    !< type of slope computation (2 for second order scheme).
+     integer(int_kind):: iorder        !<
+     real   (fp_kind) :: smallr        !< small density cut-off
+     real   (fp_kind) :: smallc        !< small speed of sound cut-off
+     real   (fp_kind) :: smallp        !< small pressure cut-off
+     real   (fp_kind) :: smallpp       !< smallp times smallr
+     integer(int_kind) :: niter_riemann=10 !< number of iteration usd in quasi-exact riemann solver
+     integer(int_kind) :: isize=0  !< total size (in cell unit) along X direction with ghosts.
+     integer(int_kind) :: jsize=0  !< total size (in cell unit) along Y direction with ghosts.
+  end type HydroPar
+
   !! run parameters
   integer(int_kind ) :: nStepmax !< maximun number of time steps.
   real   (fp_kind)   :: tEnd     !< end of simulation time.
@@ -33,8 +51,6 @@ module HydroParameters
   integer(int_kind) :: jmin=0   !< index minimum at Y border
   integer(int_kind) :: jmax=0   !< index maximum at Y border
 
-  integer(int_kind) :: isize=0  !< total size (in cell unit) along X direction with ghosts.
-  integer(int_kind) :: jsize=0  !< total size (in cell unit) along Y direction with ghosts.
 
   real(fp_kind)   :: xmin=0.0
   real(fp_kind)   :: xmax=1.0
@@ -52,17 +68,7 @@ module HydroParameters
   logical :: ioVTK=.true.   !< enable VTK  output file format (using VTI).
   logical :: ioHDF5=.false. !< enable HDF5 output file format.
 
-  !! hydro (numerical scheme) parameters
-  real   (fp_kind) :: gamma0        !< specific heat capacity ratio (adiabatic index)
-  real   (fp_kind) :: gamma6
-  real   (fp_kind) :: cfl           !< Courant-Friedrich-Lewy parameter.
-  real   (fp_kind) :: slope_type    !< type of slope computation (2 for second order scheme).
-  integer(int_kind):: iorder        !<
-  real   (fp_kind) :: smallr        !< small density cut-off
-  real   (fp_kind) :: smallc        !< small speed of sound cut-off
-  real   (fp_kind) :: smallp        !< small pressure cut-off
-  real   (fp_kind) :: smallpp       !< smallp times smallr
-  integer(int_kind) :: niter_riemann=10 !< number of iteration usd in quasi-exact riemann solver
+  type(HydroPar)    :: params
   integer(int_kind) :: riemannSolverType=0
   character(LEN=20) :: problem='implode'
 
@@ -71,7 +77,7 @@ module HydroParameters
   integer(int_kind),parameter  ::  nbVar=4  !< number of fields in simulation (density, energy, vx, vy)
   integer(int_kind)  :: implementationVersion=0 !< triggers which implementation to use (currently 2 versions)
 
-  !$acc declare copyin(smallr,smallp,smallpp,smallc,gamma0,gamma6,isize,jsize,slope_type,niter_riemann)
+  !$acc declare copyin(params)
 
   contains
 
@@ -82,6 +88,14 @@ module HydroParameters
       ! local variables
       integer(int_kind) :: narg
       character(LEN=80) :: inputFilename
+
+      real   (fp_kind) :: gamma0
+      real   (fp_kind) :: cfl
+      real   (fp_kind) :: smallr
+      real   (fp_kind) :: smallc
+      integer(int_kind) :: niter_riemann=10
+      integer(int_kind):: iorder
+      real   (fp_kind) :: slope_type
 
       ! declare namelist
       namelist/run/tEnd,nStepmax,nOutput
@@ -115,15 +129,23 @@ module HydroParameters
       imax = nx+2*ghostWidth
       jmax = ny+2*ghostWidth
 
-      isize = imax - imin + 1
-      jsize = jmax - jmin + 1
+      params%isize = imax - imin + 1
+      params%jsize = jmax - jmin + 1
 
       dx = (xmax - xmin) / nx
       dy = (ymax - ymin) / ny
 
-      smallp  = smallc*smallc/gamma0
-      smallpp = smallr*smallp
-      gamma6  = (gamma0 + ONE_F)/(TWO_F * gamma0)
+      params%gamma0        = gamma0
+      params%cfl           = cfl
+      params%smallr        = smallr
+      params%smallc        = smallc
+      params%niter_riemann = niter_riemann
+      params%iorder        = iorder
+      params%slope_type    = slope_type
+
+      params%smallp  = params%smallc * params%smallc / params%gamma0
+      params%smallpp = params%smallr * params%smallp
+      params%gamma6  = (params%gamma0 + ONE_F) / (TWO_F * params%gamma0)
 
       ! check that given parameters are valid
       if ( (implementationVersion .ne. 0) .and. (implementationVersion .ne. 1)) then
@@ -134,7 +156,7 @@ module HydroParameters
          write(*,*) 'Using implementation version', implementationVersion
       end if
 
-      !$acc update device(smallr,smallp,smallpp,smallc,gamma0,gamma6,isize,jsize,slope_type,niter_riemann)
+      !$acc update device(params)
 
     end subroutine initHydroParameters
 
@@ -151,9 +173,9 @@ module HydroParameters
       write(*,*) 'imin : ', imin, 'imax : ', imax
       write(*,*) 'jmin : ', jmin, 'jmax : ', jmax
       write(*,*) 'nStepmax,tEnd,nOutput : ',nStepmax,tEnd,nOutput
-      write(*,*) 'gamma0,cfl : ',gamma0,cfl
-      write(*,*) 'smallr,smallc,niter_riemann :',smallr,smallc,niter_riemann
-      write(*,*) 'iorder,slope_type :',iorder,slope_type
+      write(*,*) 'gamma0,cfl : ',params%gamma0,params%cfl
+      write(*,*) 'smallr,smallc,niter_riemann :',params%smallr,params%smallc,params%niter_riemann
+      write(*,*) 'iorder,slope_type :',params%iorder,params%slope_type
 
     end subroutine printHydroParameters
 

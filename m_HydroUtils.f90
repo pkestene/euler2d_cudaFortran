@@ -26,7 +26,7 @@ module HydroUtils
     !! equation of state (ideal gas)
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !$acc routine(eos)
-    pure subroutine eos(rho,eint,p,c)
+    pure subroutine eos(rho,eint,p,c,params)
 
       implicit none
 
@@ -35,9 +35,10 @@ module HydroUtils
       real(fp_kind), intent(in)    :: eint !< internal energy
       real(fp_kind), intent(inout) :: p    !< pressure
       real(fp_kind), intent(out)   :: c    !< speed of sound
+      type(HydroPar), intent(in)   :: params !< hydro parameters
 
-      p = max ( (gamma0 - 1.0) * rho * eint, rho * smallp)
-      c = sqrt( gamma0 * p / rho)
+      p = max ( (params%gamma0 - 1.0) * rho * eint, rho * params%smallp)
+      c = sqrt( params%gamma0 * p / rho)
 
     end subroutine eos
 
@@ -45,12 +46,13 @@ module HydroUtils
     !! Compute primitive variables
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !$acc routine(computePrimitives)
-    pure subroutine computePrimitives(data,i,j,c,qLoc)
+    pure subroutine computePrimitives(params,data,i,j,c,qLoc)
 
       implicit none
 
       ! dummy variables
-      real(fp_kind), dimension(isize, jsize, nbVar), intent(inout) :: data !< should u or u2
+      type(HydroPar)                  , intent(in)   :: params !< hydro parameters
+      real(fp_kind), dimension(params%isize, params%jsize, nbVar), intent(inout) :: data !< should u or u2
       integer                         , intent(in)    :: i,j
       real(fp_kind)                   , intent(out)   :: c
       real(fp_kind), dimension(nbVar) , intent(out)   :: qLoc ! primitive var
@@ -67,12 +69,12 @@ module HydroUtils
       uLoc(IV) = data(i,j,IV)
 
       ! compute primitive variables
-      if (uLoc(ID) > smallr) then
-         qLoc(ID) = uLoc(ID)
-      else
-         qLoc(ID) = smallr
-      end if
-      !qLoc(ID) = max(uLoc(ID), smallr)
+      ! if (uLoc(ID) > params%smallr) then
+      !    qLoc(ID) = uLoc(ID)
+      ! else
+      !    qLoc(ID) = 0!params%smallr
+      ! end if
+      qLoc(ID) = max(uLoc(ID), params%smallr)
       qLoc(IU) = uLoc(IU) / qLoc(ID)
       qLoc(IV) = uLoc(IV) / qLoc(ID)
 
@@ -84,7 +86,7 @@ module HydroUtils
       ! end if
 
       ! retrieve pressure from equation of state
-      call eos(qLoc(ID), e, qLoc(IP), c)
+      call eos(qLoc(ID), e, qLoc(IP), c, params)
 
     end subroutine computePrimitives
 
@@ -99,7 +101,7 @@ module HydroUtils
     !! qp         : qp state (one per dimension)
     !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !$acc routine(trace_unsplit_2d)
-    pure subroutine trace_unsplit_2d(qLoc, qNeighbors, dtdx, dtdy, qm, qp)
+    pure subroutine trace_unsplit_2d(qLoc, qNeighbors, dtdx, dtdy, qm, qp, params)
 
       implicit none
 
@@ -110,6 +112,7 @@ module HydroUtils
       real(fp_kind)                     , intent(in)  :: dtdy
       real(fp_kind), dimension(2, nbVar), intent(out) :: qm
       real(fp_kind), dimension(2, nbVar), intent(out) :: qp
+      type(HydroPar)                    , intent(in)  :: params
 
       ! local variables
       real(fp_kind), dimension(2, nbVar) :: dq    ! slopes array
@@ -125,7 +128,7 @@ module HydroUtils
 
       ! first compute slopes
       call slope_unsplit_hydro_2d(qLoc, qNeighbors(1,:), qNeighbors(2,:), &
-           & qNeighbors(3,:), qNeighbors(4,:), dq)
+           & qNeighbors(3,:), qNeighbors(4,:), dq, params)
 
       r = qLoc(ID)
       p = qLoc(IP)
@@ -144,7 +147,7 @@ module HydroUtils
 
       ! source terms (with transverse derivatives)
       sr0 = -u*drx-v*dry - (dux+dvy)*r
-      sp0 = -u*dpx-v*dpy - (dux+dvy)*gamma0*p
+      sp0 = -u*dpx-v*dpy - (dux+dvy)*params%gamma0*p
       su0 = -u*dux-v*duy - (dpx    )/r
       sv0 = -u*dvx-v*dvy - (dpy    )/r
 
@@ -153,28 +156,28 @@ module HydroUtils
       qp(1,IP) = p - HALF_F*dpx + sp0*dtdx*HALF_F
       qp(1,IU) = u - HALF_F*dux + su0*dtdx*HALF_F
       qp(1,IV) = v - HALF_F*dvx + sv0*dtdx*HALF_F
-      qp(1,ID) = max(smallr, qp(1,ID))
+      qp(1,ID) = max(params%smallr, qp(1,ID))
 
       ! Left state at right interface
       qm(1,ID) = r + HALF_F*drx + sr0*dtdx*HALF_F
       qm(1,IP) = p + HALF_F*dpx + sp0*dtdx*HALF_F
       qm(1,IU) = u + HALF_F*dux + su0*dtdx*HALF_F
       qm(1,IV) = v + HALF_F*dvx + sv0*dtdx*HALF_F
-      qm(1,ID) = max(smallr, qm(1,ID))
+      qm(1,ID) = max(params%smallr, qm(1,ID))
 
       ! Top state at bottom interface
       qp(2,ID) = r - HALF_F*dry + sr0*dtdy*HALF_F
       qp(2,IP) = p - HALF_F*dpy + sp0*dtdy*HALF_F
       qp(2,IU) = u - HALF_F*duy + su0*dtdy*HALF_F
       qp(2,IV) = v - HALF_F*dvy + sv0*dtdy*HALF_F
-      qp(2,ID) = max(smallr, qp(2,ID))
+      qp(2,ID) = max(params%smallr, qp(2,ID))
 
       ! Bottom state at top interface
       qm(2,ID) = r + HALF_F*dry + sr0*dtdy*HALF_F
       qm(2,IP) = p + HALF_F*dpy + sp0*dtdy*HALF_F
       qm(2,IU) = u + HALF_F*duy + su0*dtdy*HALF_F
       qm(2,IV) = v + HALF_F*dvy + sv0*dtdy*HALF_F
-      qm(2,ID) = max(smallr, qm(2,ID))
+      qm(2,ID) = max(params%smallr, qm(2,ID))
 
     end subroutine trace_unsplit_2d
 
@@ -191,7 +194,7 @@ module HydroUtils
     !! \param[out] qp
     !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !$acc routine(trace_unsplit_hydro_2d)
-    pure subroutine trace_unsplit_hydro_2d(qLoc, dq, dtdx, dtdy, qm, qp)
+    pure subroutine trace_unsplit_hydro_2d(qLoc, dq, dtdx, dtdy, qm, qp, params)
 
       implicit none
 
@@ -202,6 +205,7 @@ module HydroUtils
       real(fp_kind)                     , intent(in)  :: dtdy
       real(fp_kind), dimension(2, nbVar), intent(out) :: qm
       real(fp_kind), dimension(2, nbVar), intent(out) :: qp
+      type(HydroPar)                    , intent(in)  :: params
 
       ! local variables
       real(fp_kind) :: r,p,u,v
@@ -233,7 +237,7 @@ module HydroUtils
       sr0 = (-u*drx-dux*r)       *dtdx + (-v*dry-dvy*r)       *dtdy
       su0 = (-u*dux-dpx/r)       *dtdx + (-v*duy      )       *dtdy
       sv0 = (-u*dvx      )       *dtdx + (-v*dvy-dpy/r)       *dtdy
-      sp0 = (-u*dpx-dux*gamma0*p)*dtdx + (-v*dpy-dvy*gamma0*p)*dtdy
+      sp0 = (-u*dpx-dux*params%gamma0*p)*dtdx + (-v*dpy-dvy*params%gamma0*p)*dtdy
 
       ! Update in time the  primitive variables
       r = r + sr0
@@ -246,32 +250,32 @@ module HydroUtils
       qp(1,IU) = u - dux
       qp(1,IV) = v - dvx
       qp(1,IP) = p - dpx
-      qp(1,ID) = max(smallR,  qp(1,ID))
-      qp(1,IP) = max(smallp * qp(1,ID), qp(1,IP))
+      qp(1,ID) = max(params%smallR,  qp(1,ID))
+      qp(1,IP) = max(params%smallp * qp(1,ID), qp(1,IP))
 
       ! Face averaged left state at right interface
       qm(1,ID) = r + drx
       qm(1,IU) = u + dux
       qm(1,IV) = v + dvx
       qm(1,IP) = p + dpx
-      qm(1,ID) = max(smallR,  qm(1,ID))
-      qm(1,IP) = max(smallp * qm(1,ID), qm(1,IP))
+      qm(1,ID) = max(params%smallR,  qm(1,ID))
+      qm(1,IP) = max(params%smallp * qm(1,ID), qm(1,IP))
 
       ! Face averaged top state at bottom interface
       qp(2,ID) = r - dry
       qp(2,IU) = u - duy
       qp(2,IV) = v - dvy
       qp(2,IP) = p - dpy
-      qp(2,ID) = max(smallR,  qp(2,ID))
-      qp(2,IP) = max(smallp * qp(2,ID), qp(2,IP))
+      qp(2,ID) = max(params%smallR,  qp(2,ID))
+      qp(2,IP) = max(params%smallp * qp(2,ID), qp(2,IP))
 
       ! Face averaged bottom state at top interface
       qm(2,ID) = r + dry
       qm(2,IU) = u + duy
       qm(2,IV) = v + dvy
       qm(2,IP) = p + dpy
-      qm(2,ID) = max(smallR,  qm(2,ID))
-      qm(2,IP) = max(smallp * qm(2,ID), qm(2,IP))
+      qm(2,ID) = max(params%smallR,  qm(2,ID))
+      qm(2,IP) = max(params%smallp * qm(2,ID), qm(2,IP))
 
     end subroutine trace_unsplit_hydro_2d
 
@@ -288,7 +292,7 @@ module HydroUtils
     !!
     !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !$acc routine(slope_unsplit_hydro_2d)
-    pure subroutine slope_unsplit_hydro_2d(q, qPlusX, qMinusX, qPlusY, qMinusY, dq)
+    pure subroutine slope_unsplit_hydro_2d(q, qPlusX, qMinusX, qPlusY, qMinusY, dq, params)
 
       implicit none
 
@@ -299,6 +303,7 @@ module HydroUtils
       real(fp_kind), dimension(nbVar)   , intent(in)  :: qPlusY
       real(fp_kind), dimension(nbVar)   , intent(in)  :: qMinusY
       real(fp_kind), dimension(2,nbVar) , intent(out) :: dq
+      type(HydroPar)                    , intent(in)  :: params
 
       ! local variables
       integer :: nvar
@@ -308,21 +313,21 @@ module HydroUtils
       real(fp_kind), dimension(nbvar) :: dqX
       real(fp_kind), dimension(nbVar) :: dqY
 
-      if (slope_type==0) then
+      if (params%slope_type==0) then
 
          do nVar=1,nbVar
             dqX(nVar) = ZERO_F
             dqY(nVar) = ZERO_F
          end do
 
-      else if (slope_type==1 .or. slope_type==2) then ! minmod or average
+      else if (params%slope_type==1 .or. params%slope_type==2) then ! minmod or average
 
          do nVar=1,nbVar
 
             ! slopes in first coordinate direction
-            dlft = slope_type*(q     (nVar) - qMinusX(nVar))
-            drgt = slope_type*(qPlusX(nVar) - q      (nVar))
-            dcen = HALF_F    *(qPlusX(nVar) - qMinusX(nVar))
+            dlft = params%slope_type*(q     (nVar) - qMinusX(nVar))
+            drgt = params%slope_type*(qPlusX(nVar) - q      (nVar))
+            dcen = HALF_F           *(qPlusX(nVar) - qMinusX(nVar))
 
             dsgn = -ONE_F
             if (dcen >= ZERO_F) dsgn = ONE_F
@@ -334,9 +339,9 @@ module HydroUtils
             dqX(nVar) = dsgn * min( dlim, abs(dcen) )
 
             ! slopes in second coordinate direction
-            dlft = slope_type*(q     (nVar) - qMinusY(nVar))
-            drgt = slope_type*(qPlusY(nVar) - q      (nVar))
-            dcen = HALF_F    *(qPlusY(nVar) - qMinusY(nVar))
+            dlft = params%slope_type*(q     (nVar) - qMinusY(nVar))
+            drgt = params%slope_type*(qPlusY(nVar) - q      (nVar))
+            dcen = HALF_F           *(qPlusY(nVar) - qMinusY(nVar))
 
             dsgn = -ONE_F
             if (dcen >= ZERO_F)  dsgn = ONE_F
@@ -349,7 +354,7 @@ module HydroUtils
 
          end do ! end for nVar
 
-      end if  ! end slope_type == 1 or 2
+      end if  ! end params%slope_type == 1 or 2
 
       dq(1,:) = dqX
       dq(2,:) = dqY
@@ -361,7 +366,7 @@ module HydroUtils
     !! this is actually the approx solver
     !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !$acc routine(riemann_2d)
-    pure subroutine riemann_2d(qleft,qright,qgdnv,flux)
+    pure subroutine riemann_2d(qleft,qright,qgdnv,flux,params)
 
       implicit none
 
@@ -370,6 +375,7 @@ module HydroUtils
       real(fp_kind), dimension(nbVar), intent(in)  :: qright
       real(fp_kind), dimension(nbVar), intent(out) :: qgdnv
       real(fp_kind), dimension(nbVar), intent(out) :: flux
+      type(HydroPar)                 , intent(in)  :: params
 
       ! local variables
       integer :: iter
@@ -387,16 +393,16 @@ module HydroUtils
       real(fp_kind) :: ustar, rstar, cstar, spout, spin, ushock, scr, frac
 
       ! Pressure, density and velocity
-      rl = max(qleft (ID), smallr)
+      rl = max(qleft (ID), params%smallr)
       ul =     qleft (IU)
-      pl = max(qleft (IP), rl*smallp)
-      rr = max(qright(ID), smallr)
+      pl = max(qleft (IP), rl*params%smallp)
+      rr = max(qright(ID), params%smallr)
       ur =     qright(IU)
-      pr = max(qright(IP), rr*smallp)
+      pr = max(qright(IP), rr*params%smallp)
 
       ! Lagrangian sound speed
-      cl = gamma0*pl*rl
-      cr = gamma0*pr*rr
+      cl = params%gamma0*pl*rl
+      cr = params%gamma0*pr*rr
 
       ! First guess
       wl = sqrt(cl)
@@ -407,9 +413,9 @@ module HydroUtils
 
       !  Newton-Raphson iterations to find pstar at the required accuracy
       iter = 0
-      do while (iter < niter_riemann .and. conv > 1e-6)
-         wwl = sqrt(cl*(ONE_F+gamma6*(pold-pl)/pl))
-         wwr = sqrt(cr*(ONE_F+gamma6*(pold-pr)/pr))
+      do while (iter < params%niter_riemann .and. conv > 1e-6)
+         wwl = sqrt(cl*(ONE_F+params%gamma6*(pold-pl)/pl))
+         wwr = sqrt(cr*(ONE_F+params%gamma6*(pold-pr)/pr))
          ql = 2.0*wwl*wwl*wwl/(wwl*wwl+cl)
          qr = 2.0*wwr*wwr*wwr/(wwr*wwr+cr)
          usl = ul-(pold-pl)/wwl
@@ -417,15 +423,15 @@ module HydroUtils
          delp = max(qr*ql/(qr+ql)*(usl-usr),-pold)
 
          pold = pold+delp
-         conv = abs(delp/(pold+smallpp)) ! Convergence indicator
+         conv = abs(delp/(pold+params%smallpp)) ! Convergence indicator
          iter = iter + 1
       end do
 
       ! Star region pressure
       ! for a two-shock Riemann problem
       pstar = pold
-      wl = sqrt(cl*(ONE_F+gamma6*(pstar-pl)/pl))
-      wr = sqrt(cr*(ONE_F+gamma6*(pstar-pr)/pr))
+      wl = sqrt(cl*(ONE_F+params%gamma6*(pstar-pl)/pl))
+      wr = sqrt(cr*(ONE_F+params%gamma6*(pstar-pr)/pr))
 
       ! Star region velocity
       ! for a two shock Riemann problem
@@ -450,12 +456,12 @@ module HydroUtils
          po = pr
          wo = wr
       end if
-      co = max(smallc, sqrt(abs(gamma0*po/ro)))
+      co = max(params%smallc, sqrt(abs(params%gamma0*po/ro)))
 
       ! Star region density (Shock, max prevents vacuum formation in star region)
-      rstar = max( ro/(ONE_F+ro*(po-pstar)/(wo*wo)), smallr)
+      rstar = max( ro/(ONE_F+ro*(po-pstar)/(wo*wo)), params%smallr)
       ! Star region sound speed
-      cstar = max( smallc, sqrt(abs(gamma0*pstar/rstar)) )
+      cstar = max( params%smallc, sqrt(abs(params%gamma0*pstar/rstar)) )
 
       ! Compute rarefaction head and tail speed
       spout  = co    - sgnm*uo
@@ -470,7 +476,7 @@ module HydroUtils
       end if
 
       ! Sample the solution at x/t=0
-      scr = max(spout-spin, smallc+abs(spout+spin))
+      scr = max(spout-spin, params%smallc+abs(spout+spin))
       frac = HALF_F * (ONE_F + (spout + spin)/scr)
 
       !if (isnan(frac)) then
@@ -501,7 +507,7 @@ module HydroUtils
          qgdnv(IV) = qright(IV)
       end if
 
-      call cmpflx(qgdnv, flux)
+      call cmpflx(qgdnv, flux, params)
 
     end subroutine riemann_2d
 
@@ -509,13 +515,14 @@ module HydroUtils
     !! convert godunov state into flux
     !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !$acc routine(cmpflx)
-    pure subroutine cmpflx(qgdnv, flux)
+    pure subroutine cmpflx(qgdnv, flux, params)
 
       implicit none
 
       ! dummy variables
       real(fp_kind), dimension(nbVar), intent(in)  :: qgdnv
       real(fp_kind), dimension(nbVar), intent(out) :: flux
+      type(HydroPar)                 , intent(in)   :: params
 
       ! local variables
       real(fp_kind) :: entho, ekin, etot
@@ -531,7 +538,7 @@ module HydroUtils
       flux(IV) = flux(ID) * qgdnv(IV)
 
       ! Total energy
-      entho = 1.0 / (gamma0 - 1.0)
+      entho = 1.0 / (params%gamma0 - 1.0)
       ekin = HALF_F * qgdnv(ID) * (qgdnv(IU)*qgdnv(IU) + qgdnv(IV)*qgdnv(IV))
       etot = qgdnv(IP) * entho + ekin
       flux(IP) = qgdnv(IU) * (etot + qgdnv(IP))
@@ -544,7 +551,7 @@ module HydroUtils
     !! TODO : add solver approx
     !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !$acc routine(riemann_2d_hllc)
-    pure subroutine riemann_2d_hllc(qleft,qright,qgdnv,flux)
+    pure subroutine riemann_2d_hllc(qleft,qright,qgdnv,flux, params)
 
       implicit none
 
@@ -553,6 +560,7 @@ module HydroUtils
       real(fp_kind), dimension(nbVar), intent(in)  :: qright
       real(fp_kind), dimension(nbVar), intent(out) :: qgdnv
       real(fp_kind), dimension(nbVar), intent(out) :: flux
+      type(HydroPar)                 , intent(in)  :: params
 
       ! local variables
       real(fp_kind) :: entho
@@ -569,11 +577,11 @@ module HydroUtils
       real(fp_kind) :: rcsum
 
       ! constant
-      entho = ONE_F / (gamma0 - ONE_F)
+      entho = ONE_F / (params%gamma0 - ONE_F)
 
       ! compute left and right variables
-      rl = max(qleft(ID), smallr)
-      pl = max(qleft(IP), rl*smallp)
+      rl = max(qleft(ID), params%smallr)
+      pl = max(qleft(IP), rl*params%smallp)
       ul =     qleft(IU)
 
       ecinl =         HALF_F*rl*ul*ul
@@ -582,8 +590,8 @@ module HydroUtils
       etotl = pl*entho+ecinl
       ptotl = pl
 
-      rr = max(qright(ID), smallr)
-      pr = max(qright(IP), rr*smallp)
+      rr = max(qright(ID), params%smallr)
+      pr = max(qright(IP), rr*params%smallp)
       ur =     qright(IU)
 
       ecinr =         HALF_F*rr*ur*ur
@@ -593,8 +601,8 @@ module HydroUtils
       ptotr = pr
 
       ! Find the largest eigenvalues in the normal direction to the interface
-      cfastl = sqrt(max(gamma0*pl/rl,smallc*smallc))
-      cfastr = sqrt(max(gamma0*pr/rr,smallc*smallc))
+      cfastl = sqrt(max(params%gamma0*pl/rl,params%smallc*params%smallc))
+      cfastr = sqrt(max(params%gamma0*pr/rr,params%smallc*params%smallc))
 
       ! Compute HLL wave speed
       SL = min(ul,ur) - max(cfastl,cfastr)
@@ -603,7 +611,7 @@ module HydroUtils
       ! Compute lagrangian sound speed
       rcl = rl*(ul-SL)
       rcr = rr*(SR-ur)
-      rcsum = max(rcl+rcr,smallr)
+      rcsum = max(rcl+rcr,params%smallr)
 
       ! Compute acoustic star state
       ustar    = (rcr*ur   +rcl*ul   +  (ptotl-ptotr))/(rcr+rcl)
