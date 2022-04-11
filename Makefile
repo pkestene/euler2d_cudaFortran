@@ -20,9 +20,9 @@
 # ######## NVIDIA stdpar gpu ########
 SUFFIX=_stdpar_gpu
 F90 = nvfortran
-ARCH_GPU=cc75
-CUDA_VERSION=11.6
-FFLAGS = -O3 -stdpar=gpu -gpu=$(ARCH_GPU),cuda$(CUDA_VERSION) -acc=gpu -gpu=rdc,managed -Minform=warn -Minfo
+CUDA_ARCH ?= cc75
+CUDA_VERSION ?= 11.6
+FFLAGS = -O3 -stdpar=gpu -gpu=$(CUDA_ARCH),cuda$(CUDA_VERSION) -acc=gpu -gpu=rdc,managed -Minform=warn -Minfo
 LDFLAGS = -O3 -stdpar=gpu -acc=gpu -gpu=rdc
 
 SRCDIR = .

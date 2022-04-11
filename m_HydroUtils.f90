@@ -46,34 +46,21 @@ module HydroUtils
     !! Compute primitive variables
     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !$acc routine(computePrimitives)
-    pure subroutine computePrimitives(params,data,i,j,c,qLoc)
+    pure subroutine computePrimitives(uLoc,qLoc,c,params)
 
       implicit none
 
       ! dummy variables
-      type(HydroPar)                  , intent(in)   :: params !< hydro parameters
-      real(fp_kind), dimension(params%isize, params%jsize, nbVar), intent(inout) :: data !< should u or u2
-      integer                         , intent(in)    :: i,j
-      real(fp_kind)                   , intent(out)   :: c
+      real(fp_kind), dimension(nbVar) , intent(in)    :: uLoc ! conservative var
       real(fp_kind), dimension(nbVar) , intent(out)   :: qLoc ! primitive var
+      real(fp_kind)                   , intent(out)   :: c
+      type(HydroPar)                  , intent(in)    :: params !< hydro parameters
 
       ! local variables
-      real(fp_kind), dimension(nbVar) :: uLoc ! local conservative variables
       real(fp_kind)                   :: eken ! kinetic energy
       real(fp_kind)                   :: e    ! total energy
 
-      ! retrieve u local
-      uLoc(ID) = data(i,j,ID)
-      uLoc(IP) = data(i,j,IP)
-      uLoc(IU) = data(i,j,IU)
-      uLoc(IV) = data(i,j,IV)
-
       ! compute primitive variables
-      ! if (uLoc(ID) > params%smallr) then
-      !    qLoc(ID) = uLoc(ID)
-      ! else
-      !    qLoc(ID) = 0!params%smallr
-      ! end if
       qLoc(ID) = max(uLoc(ID), params%smallr)
       qLoc(IU) = uLoc(IU) / qLoc(ID)
       qLoc(IV) = uLoc(IV) / qLoc(ID)

@@ -87,6 +87,7 @@ contains
     real(fp_kind) :: invDt=0.0
     real(fp_kind) :: vx,vy
     integer :: i,j
+    real(fp_kind), dimension(nbVar) :: uLoc
     real(fp_kind), dimension(nbVar) :: qLoc
     real(fp_kind)                   :: c
 
@@ -95,7 +96,13 @@ contains
 
        do concurrent (j=ghostWidth+1:params%jsize-ghostWidth-1, i=ghostWidth+1:params%isize-ghostWidth-1) reduce(max:invDt)
 
-          call computePrimitives(params, u, i, j, c, qLoc)
+          ! retrieve conservative variables in current cell
+          uLoc(ID) = u(i,j,ID)
+          uLoc(IP) = u(i,j,IP)
+          uLoc(IU) = u(i,j,IU)
+          uLoc(IV) = u(i,j,IV)
+
+          call computePrimitives(uLoc,qLoc,c,params)
           vx = c + abs(qLoc(IU))
           vy = c + abs(qLoc(IV))
           invDt = max(invDt, vx/dx + vy/dy)
@@ -106,7 +113,13 @@ contains
 
        do concurrent (j=ghostWidth+1:params%jsize-ghostWidth-1, i=ghostWidth+1:params%isize-ghostWidth-1) reduce(max:invDt)
 
-          call computePrimitives(params, u2, i, j, c, qLoc)
+          ! retrieve conservative variables in current cell
+          uLoc(ID) = u2(i,j,ID)
+          uLoc(IP) = u2(i,j,IP)
+          uLoc(IU) = u2(i,j,IU)
+          uLoc(IV) = u2(i,j,IV)
+
+          call computePrimitives(uLoc,qLoc,c,params)
           vx = c + abs(qLoc(IU))
           vy = c + abs(qLoc(IV))
           invDt = max(invDt, vx/dx + vy/dy)
@@ -179,6 +192,7 @@ contains
     real(fp_kind), dimension(nbVar) :: qgdnv
     real(fp_kind), dimension(nbVar) :: flux_x
     real(fp_kind), dimension(nbVar) :: flux_y
+    real(fp_kind), dimension(nbVar) :: uLoc
 
     dtdx = dt / dx
     dtdy = dt / dy
@@ -207,11 +221,36 @@ contains
              jj=j
              if (pos==2) ii = i-1
              if (pos==3) jj = j-1
-             call computePrimitives(params, data_in, ii  , jj  , c     , qLoc)
-             call computePrimitives(params, data_in, ii+1, jj  , cPlus , qNeighbors(1,:))
-             call computePrimitives(params, data_in, ii-1, jj  , cMinus, qNeighbors(2,:))
-             call computePrimitives(params, data_in, ii  , jj+1, cPlus , qNeighbors(3,:))
-             call computePrimitives(params, data_in, ii  , jj-1, cMinus, qNeighbors(4,:))
+
+             uLoc(ID) = data_in(ii,jj,ID)
+             uLoc(IP) = data_in(ii,jj,IP)
+             uLoc(IU) = data_in(ii,jj,IU)
+             uLoc(IV) = data_in(ii,jj,IV)
+             call computePrimitives(uLoc, qLoc, c, params)
+
+             uLoc(ID) = data_in(ii+1,jj,ID)
+             uLoc(IP) = data_in(ii+1,jj,IP)
+             uLoc(IU) = data_in(ii+1,jj,IU)
+             uLoc(IV) = data_in(ii+1,jj,IV)
+             call computePrimitives(uLoc, qNeighbors(1,:), cPlus, params)
+
+             uLoc(ID) = data_in(ii-1,jj,ID)
+             uLoc(IP) = data_in(ii-1,jj,IP)
+             uLoc(IU) = data_in(ii-1,jj,IU)
+             uLoc(IV) = data_in(ii-1,jj,IV)
+             call computePrimitives(uLoc, qNeighbors(2,:), cMinus, params)
+
+             uLoc(ID) = data_in(ii,jj+1,ID)
+             uLoc(IP) = data_in(ii,jj+1,IP)
+             uLoc(IU) = data_in(ii,jj+1,IU)
+             uLoc(IV) = data_in(ii,jj+1,IV)
+             call computePrimitives(uLoc, qNeighbors(3,:), cPlus, params)
+
+             uLoc(ID) = data_in(ii,jj-1,ID)
+             uLoc(IP) = data_in(ii,jj-1,IP)
+             uLoc(IU) = data_in(ii,jj-1,IU)
+             uLoc(IV) = data_in(ii,jj-1,IV)
+             call computePrimitives(uLoc, qNeighbors(4,:), cMinus, params)
 
              ! compute qm, qp
              call trace_unsplit_2d(qLoc, qNeighbors, dtdx, dtdy, qm, qp, params)
@@ -304,15 +343,23 @@ contains
     real(fp_kind), dimension(params%isize, params%jsize, nbVar), intent(inout) :: data
 
     ! local variables
+
+    ! conservative variable state vector
+    real(fp_kind), dimension(nbVar) :: uLoc
+
     ! primitive variable state vector
     real(fp_kind), dimension(nbVar) :: qLoc
     real(fp_kind)                   :: c
     integer :: i,j
 
-    do j=1,params%jsize
-       do i=1,params%isize
+    do concurrent (j=1:params%jsize)
+       do concurrent (i=1:params%isize)
 
-          call computePrimitives(params, data, i, j, c, qLoc)
+          uLoc(ID) = data(i,j,ID)
+          uLoc(IP) = data(i,j,IP)
+          uLoc(IU) = data(i,j,IU)
+          uLoc(IV) = data(i,j,IV)
+          call computePrimitives(uLoc, qLoc, c, params)
 
           ! copy q state in q global
           q(i,j,:) = qLoc
