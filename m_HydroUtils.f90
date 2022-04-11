@@ -266,6 +266,96 @@ module HydroUtils
 
     end subroutine trace_unsplit_hydro_2d
 
+    !!
+    ! Trace computations for unsplit Godunov scheme.
+    !
+    ! \param[in] q          : Primitive variables state.
+    ! \param[in] dqX        : slope along X
+    ! \param[in] dqY        : slope along Y
+    ! \param[in] dtdx       : dt over dx
+    ! \param[in] dtdy       : dt over dy
+    ! \param[in] faceId     : which face will be reconstructed
+    ! \param[out] qface     : q reconstructed state at cell interface
+    !
+    !$acc routine(trace_unsplit_2d_along_dir)
+    pure subroutine trace_unsplit_2d_along_dir(q, dqX, dqY, dtdx, dtdy, faceId, qface, params)
+
+      implicit none
+
+      ! dummy variables
+      real(fp_kind), dimension(nbVar), intent(in)  :: q
+      real(fp_kind), dimension(nbVar), intent(in)  :: dqX, dqY
+      real(fp_kind)                  , intent(in)  :: dtdx, dtdy
+      integer(int_kind)              , intent(in)  :: faceId
+      real(fp_kind), dimension(nbVar), intent(out) :: qface
+      type(HydroPar)                 , intent(in)  :: params
+
+      ! local variables
+      real(fp_kind) :: r,p,u,v
+      real(fp_kind) :: drx,dpx,dux,dvx
+      real(fp_kind) :: dry,dpy,duy,dvy
+      real(fp_kind) :: sr0,sp0,su0,sv0
+
+      ! Cell centered values
+      r =  q(ID);
+      p =  q(IP);
+      u =  q(IU);
+      v =  q(IV);
+
+      ! TVD slopes in all directions
+      drx = dqX(ID);
+      dpx = dqX(IP);
+      dux = dqX(IU);
+      dvx = dqX(IV);
+
+      dry = dqY(ID);
+      dpy = dqY(IP);
+      duy = dqY(IU);
+      dvy = dqY(IV);
+
+      ! source terms (with transverse derivatives)
+      sr0 = -u*drx-v*dry - (dux+dvy)*r;
+      sp0 = -u*dpx-v*dpy - (dux+dvy)*params%gamma0*p;
+      su0 = -u*dux-v*duy - (dpx    )/r;
+      sv0 = -u*dvx-v*dvy - (dpy    )/r;
+
+      if (faceId == FACE_XMIN) then
+         ! Right state at left interface
+         qface(ID) = r - HALF_F*drx + sr0*dtdx*HALF_F;
+         qface(IP) = p - HALF_F*dpx + sp0*dtdx*HALF_F;
+         qface(IU) = u - HALF_F*dux + su0*dtdx*HALF_F;
+         qface(IV) = v - HALF_F*dvx + sv0*dtdx*HALF_F;
+         qface(ID) = max(params%smallr, qface(ID));
+      end if
+
+      if (faceId == FACE_XMAX) then
+         ! Left state at right interface
+         qface(ID) = r + HALF_F*drx + sr0*dtdx*HALF_F;
+         qface(IP) = p + HALF_F*dpx + sp0*dtdx*HALF_F;
+         qface(IU) = u + HALF_F*dux + su0*dtdx*HALF_F;
+         qface(IV) = v + HALF_F*dvx + sv0*dtdx*HALF_F;
+         qface(ID) = max(params%smallr, qface(ID));
+      end if
+
+      if (faceId == FACE_YMIN) then
+         ! Top state at bottom interface
+         qface(ID) = r - HALF_F*dry + sr0*dtdy*HALF_F;
+         qface(IP) = p - HALF_F*dpy + sp0*dtdy*HALF_F;
+         qface(IU) = u - HALF_F*duy + su0*dtdy*HALF_F;
+         qface(IV) = v - HALF_F*dvy + sv0*dtdy*HALF_F;
+         qface(ID) = max(params%smallr, qface(ID));
+      end if
+
+      if (faceId == FACE_YMAX) then
+         ! Bottom state at top interface
+         qface(ID) = r + HALF_F*dry + sr0*dtdy*HALF_F;
+         qface(IP) = p + HALF_F*dpy + sp0*dtdy*HALF_F;
+         qface(IU) = u + HALF_F*duy + su0*dtdy*HALF_F;
+         qface(IV) = v + HALF_F*dvy + sv0*dtdy*HALF_F;
+         qface(ID) = max(params%smallr, qface(ID));
+      end if
+
+    end subroutine trace_unsplit_2d_along_dir
 
     !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     !! Compute hydro slopes

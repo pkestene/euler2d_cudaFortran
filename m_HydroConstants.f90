@@ -61,4 +61,12 @@ module HydroConstants
   real(fp_kind), parameter :: ONE_F        = 1.0
   real(fp_kind), parameter :: TWO_F        = 2.0
 
+  ! face Id's
+  integer(int_kind), parameter :: FACE_XMIN = 0
+  integer(int_kind), parameter :: FACE_XMAX = 1
+  integer(int_kind), parameter :: FACE_YMIN = 2
+  integer(int_kind), parameter :: FACE_YMAX = 3
+  integer(int_kind), parameter :: FACE_MIN = 0
+  integer(int_kind), parameter :: FACE_MAX = 1
+
 end module HydroConstants

@@ -23,10 +23,12 @@ module HydroRun
 
   ! defines data arrays
   real(fp_kind), dimension(:,:,:), allocatable :: u,u2 !< conservative variables
-  real(fp_kind), dimension(:,:,:), allocatable :: q    !< primitive variables (implementation version 1 only)
+  real(fp_kind), dimension(:,:,:), allocatable :: q    !< primitive variables (implementation version 0 and 1 only)
 
   real(fp_kind), dimension(:,:,:), allocatable :: qm_x, qm_y !< input to Riemann solvers (implementation version 1 only)
   real(fp_kind), dimension(:,:,:), allocatable :: qp_x, qp_y !< input to Riemann solvers (implementation version 1 only)
+
+  real(fp_kind), dimension(:,:,:), allocatable :: fx, fy !< flux along x and y (implementation 0 only)
 
 contains
 
@@ -39,9 +41,14 @@ contains
     ! memory allocation
     allocate( u (params%isize, params%jsize, nbVar) )
     allocate( u2(params%isize, params%jsize, nbVar) )
+    allocate( q (params%isize, params%jsize, nbVar) )
+
+    if (implementationVersion .eq. 0) then
+       allocate( fx(params%isize, params%jsize, nbVar) )
+       allocate( fy(params%isize, params%jsize, nbVar) )
+    end if
 
     if (implementationVersion .eq. 1) then
-       allocate( q   (params%isize, params%jsize, nbVar) )
        allocate( qm_x(params%isize, params%jsize, nbVar) )
        allocate( qm_y(params%isize, params%jsize, nbVar) )
        allocate( qp_x(params%isize, params%jsize, nbVar) )
@@ -507,6 +514,121 @@ contains
     end do ! end do i,j
 
   end subroutine computeFluxesAndUpdate
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !! Compute flux via Riemann solver and update (time integration)
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine computeAndStoreFluxes(data,dt)
+
+    implicit none
+
+    ! dummy variables
+    real(fp_kind), dimension(params%isize, params%jsize, nbVar), intent(inout) :: data
+    real(fp_kind), intent(in)    :: dt
+
+    ! local variables
+    integer :: i,j
+    real(fp_kind), dimension(nbVar)     :: qleft, qright
+    real(fp_kind), dimension(nbVar)     :: flux_x, flux_y
+    real(fp_kind), dimension(nbVar)     :: qgdnv
+    real(fp_kind), dimension(nbVar)     :: qLoc, qLocN, qN0, qN1, qN2, qN3
+    real(fp_kind), dimension(nbVar)     :: dqX, dqY, dqXN, dqYN
+    real(fp_kind), dimension(2,nbVar)   :: dq,dqN
+
+    real(fp_kind) :: tmp
+
+    real(fp_kind) :: dtdx
+    real(fp_kind) :: dtdy
+
+    dtdx = dt / dx
+    dtdy = dt / dy
+
+    do concurrent(j=ghostWidth+1:params%jsize-ghostWidth+1, i=ghostWidth+1:params%isize-ghostWidth+1)
+
+       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+       !! deal with left interface along X !
+       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+       !! get primitive variables state vector
+       qLoc(:) = q(i  ,j  , :)
+       qN0(:)  = q(i+1,j  , :)
+       qN1(:)  = q(i-1,j  , :)
+       qN2(:)  = q(i  ,j+1, :)
+       qN3(:)  = q(i  ,j-1, :)
+
+       call slope_unsplit_hydro_2d(qLoc, qN0, qN1, qN2, qN3, dq, params)
+
+       ! slopes at left neighbor along X
+       qLocN(:) = q(i-1,j  , :)
+       qN0(:)   = q(i  ,j  , :)
+       qN1(:)   = q(i-2,j  , :)
+       qN2(:)   = q(i-1,j+1, :)
+       qN3(:)   = q(i-1,j-1, :)
+
+       call slope_unsplit_hydro_2d(qLocN, qN0, qN1, qN2, qN3, dqN, params)
+
+       !
+       ! compute reconstructed states at left interface along X
+       !
+
+       ! left interface : right state
+       call trace_unsplit_2d_along_dir(qLoc, dqX, dqY, dtdx, dtdy, FACE_XMIN, qright, params)
+
+       ! left interface : left state
+       call trace_unsplit_2d_along_dir(qLocN, dqXN, dqYN, dtdx, dtdy, FACE_XMAX, qleft, params)
+
+       ! compute hydro flux_x
+       call riemann_2d(qleft,qright,qgdnv,flux_x, params)
+
+       !
+       ! store fluxes X
+       !
+       fx(i  ,j  , ID) = flux_x(ID) * dtdx
+       fx(i  ,j  , IP) = flux_x(IP) * dtdx
+       fx(i  ,j  , IU) = flux_x(IU) * dtdx
+       fx(i  ,j  , IV) = flux_x(IV) * dtdx
+
+       !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+       !! deal with left interface along Y !
+       !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+       !! slopes at left neighbor along Y
+       qLocN(:) = q(i  ,j-1, :)
+       qN0(:)   = q(i+1,j-1, :)
+       qN1(:)   = q(i-1,j-1, :)
+       qN2(:)   = q(i  ,j  , :)
+       qN3(:)   = q(i  ,j-2, :)
+
+       call slope_unsplit_hydro_2d(qLocN, qN0, qN1, qN2, qN3, dqN, params)
+
+       !!
+       !! compute reconstructed states at left interface along Y
+       !!
+
+       !! left interface : right state
+       call trace_unsplit_2d_along_dir(qLoc, dqX, dqY, dtdx, dtdy, FACE_YMIN, qright, params)
+
+       !! left interface : left state
+       call trace_unsplit_2d_along_dir(qLocN, dqXN, dqYN, dtdx, dtdy, FACE_YMAX, qleft, params)
+
+       ! swap IU / IV
+       tmp = qleft(IU); qleft(IU) = qleft(IV); qleft(IV) = tmp
+       tmp = qright(IU); qright(IU) = qright(IV); qright(IV) = tmp
+
+       ! compute hydro flux_y
+       call riemann_2d(qleft,qright,qgdnv,flux_y, params)
+
+       !
+       ! store fluxes Y
+       !
+       fy(i  ,j  , ID) = flux_y(ID) * dtdy
+       fy(i  ,j  , IP) = flux_y(IP) * dtdy
+       fy(i  ,j  , IU) = flux_y(IV) * dtdy !
+       fy(i  ,j  , IV) = flux_y(IU) * dtdy !
+
+    end do
+
+  end subroutine computeAndStoreFluxes
 
   !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   !! Hydrodynamical Implosion Test :
