@@ -12,6 +12,11 @@ using a 2nd order godunov-based finite volume scheme.
 ## PGI compiler for CUDA Fortran
 It is written in CUDA Fortran and designed as a simple example of use of NVIDIA GPU's for CFD applications. You need to have the PGI compiler to build this application.
 
+Build for a given Cuda architecture, using a given Cuda runtime version
+```shell
+make CUDA_ARCH=cc80 CUDA_VERSION=11.6
+```
+
 ## Parameter file
 Parameters:
 	edit file test.nml
@@ -25,10 +30,10 @@ Initial condition: a discontinuity along the domain diagonal
 
 ./euler2d_gpu ./test.nml
 
-Output: 
+Output:
 	VTK ascii file using VTK Image Data format
 
-Visualization: 
+Visualization:
 	paraview --data=euler2d_..vti
 
 

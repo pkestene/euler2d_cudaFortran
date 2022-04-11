@@ -16,20 +16,21 @@ F90 = pgfortran
 FFLAGS = -O4 -fast -Minform=warn -Minfo
 LDFLAGS = -O4
 
-ARCH_GPU=cc75
-#FFLAGS_CUDA = -v -O3 -Mcuda -Mcuda=6.5 -Mcuda=$(ARCH_GPU) -Mcuda=ptxinfo -ta=nvidia,fastmath,mul24,maxregcount:48,time -Minfo=all -Mpreprocess  -Mcuda=rdc
-FFLAGS_CUDA = -v -O3 -Mcuda -Mcuda=cuda11.6,$(ARCH_GPU) -Mcuda=ptxinfo -ta=nvidia,maxregcount:48,time -Minfo=all -Mpreprocess  -Mcuda=rdc -acc
+CUDA_ARCH ?= cc75
+CUDA_VERSION ?= 11.6
+#FFLAGS_CUDA = -v -O3 -Mcuda -Mcuda=6.5 -Mcuda=$(CUDA_ARCH) -Mcuda=ptxinfo -ta=nvidia,fastmath,mul24,maxregcount:48,time -Minfo=all -Mpreprocess  -Mcuda=rdc
+FFLAGS_CUDA = -v -O3 -Mcuda -Mcuda=cuda$(CUDA_VERSION),$(CUDA_ARCH) -Mcuda=ptxinfo -ta=nvidia,maxregcount:48,time -Minfo=all -Mpreprocess  -Mcuda=rdc -acc
 #-Mcuda=keepgpu
-LDFLAGS_CUDA = -O3 -Mcuda=cuda11.6,$(ARCH_GPU) -Mcuda=rdc -acc
+LDFLAGS_CUDA = -O3 -Mcuda=cuda$(CUDA_VERSION),$(CUDA_ARCH) -Mcuda=rdc -acc
 
 # PGI Debug #
 # F90 = pgfortran
 # FFLAGS = -fast -Minform=warn -Minfo -g
 # LDFLAGS =
 
-# ARCH_GPU=cc35
-# FFLAGS_CUDA = -g -v -Mcuda -Mcuda=5.5 -Mcuda=$(ARCH_GPU) -Mcuda=ptxinfo -ta=nvidia,fastmath,mul24,maxregcount:48,time -Minfo=all -Mpreprocess -Mcuda=keepgpu
-# LDFLAGS_CUDA = -Mcuda=5.5 -Mcuda=$(ARCH_GPU)
+# CUDA_ARCH=cc35
+# FFLAGS_CUDA = -g -v -Mcuda -Mcuda=5.5 -Mcuda=$(CUDA_ARCH) -Mcuda=ptxinfo -ta=nvidia,fastmath,mul24,maxregcount:48,time -Minfo=all -Mpreprocess -Mcuda=keepgpu
+# LDFLAGS_CUDA = -Mcuda=5.5 -Mcuda=$(CUDA_ARCH)
 
 SRCDIR = .
 
