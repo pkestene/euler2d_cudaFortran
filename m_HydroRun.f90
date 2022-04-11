@@ -72,10 +72,14 @@ contains
     implicit none
 
     ! memory free
-    deallocate(u,u2)
+    deallocate(u,u2,q)
+
+    if (implementationVersion .eq. 0) then
+       deallocate(fx,fy)
+    end if
 
     if (implementationVersion .eq. 1) then
-       deallocate(q,qm_x,qm_y,qp_x,qp_y)
+       deallocate(qm_x,qm_y,qp_x,qp_y)
     end if
 
   end subroutine cleanupHydroRun
@@ -215,118 +219,16 @@ contains
     ! start main computation
     call timerStart(godunov_timer)
 
+    ! convert conservative variable into primitives ones for the entire domain
+    call convertToPrimitives(data_in)
+
     if (implementationVersion == 0) then
 
-       !$omp_tmp parallel default(shared) private(qm_x,qm_y,qp_x,qp_y)
-       !$omp_tmp for collapse(2) schedule(auto)
-       do concurrent (j=ghostWidth+1: params%jsize-ghostWidth+1, i=ghostWidth+1: params%isize-ghostWidth+1)
+       call computeAndStoreFluxes(data_in,dt)
 
-          ! compute qm, qp for the 1+2 positions
-          do pos=1,3
-
-             ii=i
-             jj=j
-             if (pos==2) ii = i-1
-             if (pos==3) jj = j-1
-
-             uLoc(ID) = data_in(ii,jj,ID)
-             uLoc(IP) = data_in(ii,jj,IP)
-             uLoc(IU) = data_in(ii,jj,IU)
-             uLoc(IV) = data_in(ii,jj,IV)
-             call computePrimitives(uLoc, qLoc, c, params)
-
-             uLoc(ID) = data_in(ii+1,jj,ID)
-             uLoc(IP) = data_in(ii+1,jj,IP)
-             uLoc(IU) = data_in(ii+1,jj,IU)
-             uLoc(IV) = data_in(ii+1,jj,IV)
-             call computePrimitives(uLoc, qNeighbors(1,:), cPlus, params)
-
-             uLoc(ID) = data_in(ii-1,jj,ID)
-             uLoc(IP) = data_in(ii-1,jj,IP)
-             uLoc(IU) = data_in(ii-1,jj,IU)
-             uLoc(IV) = data_in(ii-1,jj,IV)
-             call computePrimitives(uLoc, qNeighbors(2,:), cMinus, params)
-
-             uLoc(ID) = data_in(ii,jj+1,ID)
-             uLoc(IP) = data_in(ii,jj+1,IP)
-             uLoc(IU) = data_in(ii,jj+1,IU)
-             uLoc(IV) = data_in(ii,jj+1,IV)
-             call computePrimitives(uLoc, qNeighbors(3,:), cPlus, params)
-
-             uLoc(ID) = data_in(ii,jj-1,ID)
-             uLoc(IP) = data_in(ii,jj-1,IP)
-             uLoc(IU) = data_in(ii,jj-1,IU)
-             uLoc(IV) = data_in(ii,jj-1,IV)
-             call computePrimitives(uLoc, qNeighbors(4,:), cMinus, params)
-
-             ! compute qm, qp
-             call trace_unsplit_2d(qLoc, qNeighbors, dtdx, dtdy, qm, qp, params)
-
-             ! store qm, qp
-             do iVar=1,nbVar
-                qm_x(pos,iVar) = qm(1,iVar)
-                qp_x(pos,iVar) = qp(1,iVar)
-                qm_y(pos,iVar) = qm(2,iVar)
-                qp_y(pos,iVar) = qp(2,iVar)
-             end do ! end do iVar
-
-          end do !! end do pos
-
-          ! Solve Riemann problem at X-interfaces and compute X-fluxes
-          qleft(ID)   = qm_x(2,ID)
-          qleft(IP)   = qm_x(2,IP)
-          qleft(IU)   = qm_x(2,IU)
-          qleft(IV)   = qm_x(2,IV)
-
-          qright(ID)  = qp_x(1,ID)
-          qright(IP)  = qp_x(1,IP)
-          qright(IU)  = qp_x(1,IU)
-          qright(IV)  = qp_x(1,IV)
-
-          call riemann_2d(qleft,qright,qgdnv,flux_x, params)
-
-          ! Solve Riemann problem at Y-interfaces and compute Y-fluxes
-          qleft(ID)   = qm_y(3,ID)
-          qleft(IP)   = qm_y(3,IP)
-          qleft(IU)   = qm_y(3,IV) ! watchout IU, IV permutation
-          qleft(IV)   = qm_y(3,IU) ! watchout IU, IV permutation
-
-          qright(ID)  = qp_y(1,ID)
-          qright(IP)  = qp_y(1,IP)
-          qright(IU)  = qp_y(1,IV) ! watchout IU, IV permutation
-          qright(IV)  = qp_y(1,IU) ! watchout IU, IV permutation
-
-          call riemann_2d(qleft,qright,qgdnv,flux_y, params)
-
-          !
-          ! update hydro array
-          !
-          data_out(i-1,j  ,ID) = data_out(i-1,j  ,ID) - flux_x(ID)*dtdx
-          data_out(i-1,j  ,IP) = data_out(i-1,j  ,IP) - flux_x(IP)*dtdx
-          data_out(i-1,j  ,IU) = data_out(i-1,j  ,IU) - flux_x(IU)*dtdx
-          data_out(i-1,j  ,IV) = data_out(i-1,j  ,IV) - flux_x(IV)*dtdx
-
-          data_out(i  ,j  ,ID) = data_out(i  ,j  ,ID) + flux_x(ID)*dtdx
-          data_out(i  ,j  ,IP) = data_out(i  ,j  ,IP) + flux_x(IP)*dtdx
-          data_out(i  ,j  ,IU) = data_out(i  ,j  ,IU) + flux_x(IU)*dtdx
-          data_out(i  ,j  ,IV) = data_out(i  ,j  ,IV) + flux_x(IV)*dtdx
-
-          data_out(i  ,j-1,ID) = data_out(i  ,j-1,ID) - flux_y(ID)*dtdy
-          data_out(i  ,j-1,IP) = data_out(i  ,j-1,IP) - flux_y(IP)*dtdy
-          data_out(i  ,j-1,IU) = data_out(i  ,j-1,IU) - flux_y(IV)*dtdy ! watchout IU and IV swapped
-          data_out(i  ,j-1,IV) = data_out(i  ,j-1,IV) - flux_y(IU)*dtdy ! watchout IU and IV swapped
-
-          data_out(i  ,j  ,ID) = data_out(i  ,j  ,ID) + flux_y(ID)*dtdy
-          data_out(i  ,j  ,IP) = data_out(i  ,j  ,IP) + flux_y(IP)*dtdy
-          data_out(i  ,j  ,IU) = data_out(i  ,j  ,IU) + flux_y(IV)*dtdy ! watchout IU and IV swapped
-          data_out(i  ,j  ,IV) = data_out(i  ,j  ,IV) + flux_y(IU)*dtdy ! watchout IU and IV swapped
-
-       end do ! end do j,i
+       call updateHydro(data_in,data_out)
 
     else if (implementationVersion == 1) then
-
-       ! convert conservative variable into primitives ones for the entire domain
-       call convertToPrimitives(data_in)
 
        ! trace computation: fill arrays qm_x, qm_y, qp_x, qp_y
        call computeTrace(dt)
@@ -532,8 +434,7 @@ contains
     real(fp_kind), dimension(nbVar)     :: flux_x, flux_y
     real(fp_kind), dimension(nbVar)     :: qgdnv
     real(fp_kind), dimension(nbVar)     :: qLoc, qLocN, qN0, qN1, qN2, qN3
-    real(fp_kind), dimension(nbVar)     :: dqX, dqY, dqXN, dqYN
-    real(fp_kind), dimension(2,nbVar)   :: dq,dqN
+    real(fp_kind), dimension(2,nbVar)   :: dq, dqN
 
     real(fp_kind) :: tmp
 
@@ -572,10 +473,10 @@ contains
        !
 
        ! left interface : right state
-       call trace_unsplit_2d_along_dir(qLoc, dqX, dqY, dtdx, dtdy, FACE_XMIN, qright, params)
+       call trace_unsplit_2d_along_dir(qLoc, dq(1,:), dq(2,:), dtdx, dtdy, FACE_XMIN, qright, params)
 
        ! left interface : left state
-       call trace_unsplit_2d_along_dir(qLocN, dqXN, dqYN, dtdx, dtdy, FACE_XMAX, qleft, params)
+       call trace_unsplit_2d_along_dir(qLocN, dqN(1,:), dqN(2,:), dtdx, dtdy, FACE_XMAX, qleft, params)
 
        ! compute hydro flux_x
        call riemann_2d(qleft,qright,qgdnv,flux_x, params)
@@ -583,10 +484,7 @@ contains
        !
        ! store fluxes X
        !
-       fx(i  ,j  , ID) = flux_x(ID) * dtdx
-       fx(i  ,j  , IP) = flux_x(IP) * dtdx
-       fx(i  ,j  , IU) = flux_x(IU) * dtdx
-       fx(i  ,j  , IV) = flux_x(IV) * dtdx
+       fx(i  ,j  , :) = flux_x(:) * dtdx
 
        !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
        !! deal with left interface along Y !
@@ -606,10 +504,10 @@ contains
        !!
 
        !! left interface : right state
-       call trace_unsplit_2d_along_dir(qLoc, dqX, dqY, dtdx, dtdy, FACE_YMIN, qright, params)
+       call trace_unsplit_2d_along_dir(qLoc, dq(1,:), dq(2,:), dtdx, dtdy, FACE_YMIN, qright, params)
 
        !! left interface : left state
-       call trace_unsplit_2d_along_dir(qLocN, dqXN, dqYN, dtdx, dtdy, FACE_YMAX, qleft, params)
+       call trace_unsplit_2d_along_dir(qLocN, dqN(1,:), dqN(2,:), dtdx, dtdy, FACE_YMAX, qleft, params)
 
        ! swap IU / IV
        tmp = qleft(IU); qleft(IU) = qleft(IV); qleft(IV) = tmp
@@ -618,17 +516,44 @@ contains
        ! compute hydro flux_y
        call riemann_2d(qleft,qright,qgdnv,flux_y, params)
 
+       tmp = flux_y(IU); flux_y(IU) = flux_y(IV); flux_y(IV) = tmp
+
        !
        ! store fluxes Y
        !
-       fy(i  ,j  , ID) = flux_y(ID) * dtdy
-       fy(i  ,j  , IP) = flux_y(IP) * dtdy
-       fy(i  ,j  , IU) = flux_y(IV) * dtdy !
-       fy(i  ,j  , IV) = flux_y(IU) * dtdy !
+       fy(i  ,j  , :) = flux_y(:) * dtdy
 
     end do
 
   end subroutine computeAndStoreFluxes
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !! Update hydro
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  subroutine updateHydro(dataIn,dataOut)
+
+    implicit none
+
+    ! dummy variables
+    real(fp_kind), dimension(params%isize, params%jsize, nbVar), intent(in)  :: dataIn
+    real(fp_kind), dimension(params%isize, params%jsize, nbVar), intent(out) :: dataOut
+
+    ! local variables
+    integer :: i,j
+    real(fp_kind), dimension(nbVar) :: flux_tot
+
+    do concurrent(j=ghostWidth+1:params%jsize-ghostWidth, i=ghostWidth+1:params%isize-ghostWidth)
+
+       flux_tot(:) =               fx(i  ,j  ,:)
+       flux_tot(:) = flux_tot(:) - fx(i+1,j  ,:)
+       flux_tot(:) = flux_tot(:) + fy(i  ,j  ,:)
+       flux_tot(:) = flux_tot(:) - fy(i  ,j+1,:)
+
+       dataOut(i, j, :) = dataIn(i, j, :) + flux_tot(:);
+
+    end do
+
+  end subroutine updateHydro
 
   !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   !! Hydrodynamical Implosion Test :
