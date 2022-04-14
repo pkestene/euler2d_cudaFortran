@@ -6,7 +6,7 @@
 !! abiding by the rules of distribution of free software.  You can  use, 
 !! modify and/ or redistribute the software under the terms of the CeCILL
 !! license as circulated by CEA, CNRS and INRIA at the following URL
-!! "http://www.cecill.info". 
+!! "http://www.cecill.info".
 !!
 !! The fact that you are presently reading this means that you have had
 !! knowledge of the CeCILL license and that you accept its terms.
@@ -153,7 +153,7 @@ contains
     ! source terms variables
     real(fp_kind) ::  sr0,sp0,su0,sv0
 
-    ! first compute slopes    
+    ! first compute slopes
     call slope_unsplit_hydro_2d(qLoc, qNeighbors, dq)
 
     r = qLoc(ID)
@@ -163,7 +163,7 @@ contains
 
     drx = dq(1,ID)
     dpx = dq(1,IP)
-    dux = dq(1,IU)      
+    dux = dq(1,IU)
     dvx = dq(1,IV)
 
     dry = dq(2,ID)
@@ -397,9 +397,9 @@ contains
   !!
   !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   attributes(device) subroutine slope_unsplit_hydro_2d_v2(q, qPlusX, qMinusX, qPlusY, qMinusY, dq)
-    
+
     implicit none
-    
+
     ! dummy variables
     real(fp_kind), dimension(nbVar)   , intent(in)  :: q
     real(fp_kind), dimension(nbVar)   , intent(in)  :: qPlusX
@@ -407,61 +407,61 @@ contains
     real(fp_kind), dimension(nbVar)   , intent(in)  :: qPlusY
     real(fp_kind), dimension(nbVar)   , intent(in)  :: qMinusY
     real(fp_kind), dimension(2,nbVar) , intent(out) :: dq
-    
+
     ! local variables
     integer :: nvar
     real(fp_kind) ::  dlft, drgt, dcen, dsgn, slop, dlim
-    
+
     ! alias to slopes vector (1 per dimension)
     real(fp_kind), dimension(nbvar) :: dqX
     real(fp_kind), dimension(nbVar) :: dqY
-    
+
     if (d_slope_type==0) then
-       
+
        do nVar=1,nbVar
           dqX(nVar) = ZERO_F
           dqY(nVar) = ZERO_F
        end do
-       
+
     else if (d_slope_type==1 .or. d_slope_type==2) then ! minmod or average
-       
+
        do nVar=1,nbVar
-          
+
           ! slopes in first coordinate direction
           dlft = d_slope_type*(q     (nVar) - qMinusX(nVar))
           drgt = d_slope_type*(qPlusX(nVar) - q      (nVar))
           dcen = HALF_F    *(qPlusX(nVar) - qMinusX(nVar))
-          
+
           dsgn = -ONE_F
           if (dcen >= ZERO_F) dsgn = ONE_F
-          
+
           slop = min( abs(dlft), abs(drgt) )
           dlim = slop
           if ( (dlft*drgt) <= ZERO_F ) dlim = ZERO_F
-          
+
           dqX(nVar) = dsgn * min( dlim, abs(dcen) )
-          
+
           ! slopes in second coordinate direction
           dlft = d_slope_type*(q     (nVar) - qMinusY(nVar))
           drgt = d_slope_type*(qPlusY(nVar) - q      (nVar))
           dcen = HALF_F    *(qPlusY(nVar) - qMinusY(nVar))
-          
+
           dsgn = -ONE_F
           if (dcen >= ZERO_F)  dsgn = ONE_F
-          
+
           slop = min( abs(dlft), abs(drgt) )
           dlim = slop
           if ( (dlft*drgt) <= ZERO_F ) dlim = ZERO_F
-          
+
           dqY(nVar) = dsgn * min( dlim, abs(dcen) )
-          
+
        end do ! end for nVar
-       
+
     end if  ! end slope_type == 1 or 2
-    
+
     dq(1,:) = dqX
     dq(2,:) = dqY
-    
+
   end subroutine slope_unsplit_hydro_2d_v2
 
   !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!

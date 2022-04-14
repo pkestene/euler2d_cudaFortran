@@ -6,7 +6,7 @@
 !! abiding by the rules of distribution of free software.  You can  use, 
 !! modify and/ or redistribute the software under the terms of the CeCILL
 !! license as circulated by CEA, CNRS and INRIA at the following URL
-!! "http://www.cecill.info". 
+!! "http://www.cecill.info".
 !!
 !! The fact that you are presently reading this means that you have had
 !! knowledge of the CeCILL license and that you accept its terms.
@@ -52,7 +52,7 @@ program euler2d_gpu
   ! main loop
   do while (t < tEnd .and. nStep < nStepmax)
      ! output
-     if ( modulo(nStep,nOutput) == 0) then 
+     if ( modulo(nStep,nOutput) == 0) then
         write(*,*) 'Output results at step ',nStep, 'dt ',dt
         call cudaTimerStart(d_io_timer)
         if (modulo(nStep,2) == 0) then
@@ -63,7 +63,7 @@ program euler2d_gpu
         call saveVTK(h_u,nStep)
         call cudaTimerStop(d_io_timer)
      end if
-     
+
      ! compute dt
      call compute_dt( dt, modulo(nStep,2) )
 
@@ -78,7 +78,7 @@ program euler2d_gpu
   !write(*,*) 'Output results at step ',nStep, 'dt ',dt
   !h_u = d_u
   !call saveVTK(h_u,nStep)
-  
+
   ! end of computation
   call cudaTimerStop(d_total_timer)
 

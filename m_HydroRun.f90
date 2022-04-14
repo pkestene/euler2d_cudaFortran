@@ -3,10 +3,10 @@
 !!
 !!
 !! This software is governed by the CeCILL license under French law and
-!! abiding by the rules of distribution of free software.  You can  use, 
+!! abiding by the rules of distribution of free software.  You can  use,
 !! modify and/ or redistribute the software under the terms of the CeCILL
 !! license as circulated by CEA, CNRS and INRIA at the following URL
-!! "http://www.cecill.info". 
+!! "http://www.cecill.info".
 !!
 !! The fact that you are presently reading this means that you have had
 !! knowledge of the CeCILL license and that you accept its terms.
@@ -68,7 +68,7 @@ contains
     deallocate(u,u2)
 
     if (implementationVersion .eq. 1) then
-       deallocate(q,qm_x,qm_y,qp_x,qp_y) 
+       deallocate(q,qm_x,qm_y,qp_x,qp_y)
     end if
 
 
@@ -163,7 +163,7 @@ contains
     real(fp_kind) :: dtdy
 
     ! Local variables for trace computation
-    ! we need to store qm/qp for current position i,j and i-1,j and i,j-1 
+    ! we need to store qm/qp for current position i,j and i-1,j and i,j-1
     ! that is 1+2=3 positions in total
     real(fp_kind), dimension(3, nbVar) :: qm_x
     real(fp_kind), dimension(3, nbVar) :: qm_y
@@ -407,10 +407,10 @@ contains
 
     dtdx = dt / dx
     dtdy = dt / dy
-    
+
     do j=ghostWidth+1,jsize-ghostWidth+1
        do i=ghostWidth+1,isize-ghostWidth+1
-          
+
           !
           ! Solve Riemann problem at X-interfaces and compute
           ! X-fluxes
@@ -489,7 +489,7 @@ contains
     do j=jmin,jmax
        do i=imin,imax
           tmp = 1.0*(i-ghostWidth-1)/nx + 1.0*(j-ghostWidth-1)/ny
-          if (tmp .gt. 0.5) then 
+          if (tmp .gt. 0.5) then
              data(i,j,ID)=1.0
              data(i,j,IP)=1.0/(gamma0-1.0)
              data(i,j,IU)=0.0
@@ -498,7 +498,7 @@ contains
              data(i,j,ID)=0.125
              data(i,j,IP)=0.14/(gamma0-1.0)
              data(i,j,IU)=0.0
-             data(i,j,IV)=0.0               
+             data(i,j,IV)=0.0
           end if
        end do
     end do

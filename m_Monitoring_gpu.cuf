@@ -6,30 +6,30 @@
 !! abiding by the rules of distribution of free software.  You can  use, 
 !! modify and/ or redistribute the software under the terms of the CeCILL
 !! license as circulated by CEA, CNRS and INRIA at the following URL
-!! "http://www.cecill.info". 
+!! "http://www.cecill.info".
 !!
 !! The fact that you are presently reading this means that you have had
 !! knowledge of the CeCILL license and that you accept its terms.
 
 module Monitoring_gpu
-  
+
   use HydroPrecision
   use CudaFor
-  
+
   ! declare a timer for GPU execution
   type CudaTimer
      type(CudaEvent)    :: startEv, stopEv
      real(kind=dp_kind) :: elapsed=0.d0
   end type CudaTimer
-  
+
   ! GPU timers
   type(CudaTimer) :: d_total_timer
-  type(CudaTimer) :: d_godunov_timer   
+  type(CudaTimer) :: d_godunov_timer
   type(CudaTimer) :: d_boundaries_timer
   type(CudaTimer) :: d_io_timer
-  
+
 contains
-  
+
   !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   !! Cuda timer routines
   !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -38,45 +38,45 @@ contains
   !! create cuda timers
   !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!
   subroutine init_cuda_timer
-    
+
     implicit none
-    
+
     integer :: istat
-    
+
     ! create events
     istat = cudaEventCreate(d_total_timer%startEv)
     istat = cudaEventCreate(d_total_timer%stopEv)
-    
+
     istat = cudaEventCreate(d_godunov_timer%startEv)
     istat = cudaEventCreate(d_godunov_timer%stopEv)
-    
+
     istat = cudaEventCreate(d_boundaries_timer%startEv)
     istat = cudaEventCreate(d_boundaries_timer%stopEv)
-    
+
     istat = cudaEventCreate(d_io_timer%startEv)
     istat = cudaEventCreate(d_io_timer%stopEv)
-    
+
   end subroutine init_cuda_timer
-  
+
   !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!
   !! delete cuda timers
   !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!
   subroutine cleanup_cuda_timer
-    
+
     implicit none
-    
+
     integer :: istat
 
     ! destroy events
     istat = cudaEventDestroy(d_total_timer%startEv)
     istat = cudaEventDestroy(d_total_timer%stopEv)
-    
+
     istat = cudaEventDestroy(d_godunov_timer%startEv)
     istat = cudaEventDestroy(d_godunov_timer%stopEv)
-    
+
     istat = cudaEventDestroy(d_boundaries_timer%startEv)
     istat = cudaEventDestroy(d_boundaries_timer%stopEv)
-    
+
     istat = cudaEventDestroy(d_io_timer%startEv)
     istat = cudaEventDestroy(d_io_timer%stopEv)
 
@@ -88,7 +88,7 @@ contains
   subroutine cudaTimerStart(t)
     implicit none
     type(CudaTimer), intent(inout) :: t
-    
+
     integer :: istat
     istat = cudaEventRecord(t%startEv, 0)
 
@@ -100,18 +100,18 @@ contains
   subroutine cudaTimerReset(t)
     implicit none
     type(CudaTimer), intent(inout) :: t
-    
+
     t%elapsed=0.0
 
   end subroutine cudaTimerReset
- 
+
   !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   !! stop a cuda timer
   !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   subroutine cudaTimerStop(t)
     implicit none
     type(CudaTimer), intent(inout) :: t
-    
+
     integer :: istat
     real(kind=sp_kind) :: gpu_time_ms ! time in milli-second
 
@@ -123,7 +123,7 @@ contains
 
     ! accumulate gpu_time_ms into elapsed
     t%elapsed = t%elapsed + 1e-3*gpu_time_ms ! elapsed in second
-    
+
   end subroutine cudaTimerStop
 
 end module Monitoring_gpu
