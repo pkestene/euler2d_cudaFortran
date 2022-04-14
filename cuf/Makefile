@@ -37,7 +37,6 @@ NVTX_LDFLAGS = -L$(NVHPC_ROOT)/cuda/lib64 -lnvToolsExt
 SRCDIR = .
 
 CUDA_SRC = \
-	m_nvtx.f90 \
 	m_HydroPrecision.cuf \
 	m_HydroConstants.cuf \
 	m_HydroParameters.cuf \
@@ -47,7 +46,7 @@ CUDA_SRC = \
 	m_HydroRun_gpu.cuf \
 	main_gpu.cuf
 
-CUDA_OBJ = $(CUDA_SRC:.cuf=.o)
+CUDA_OBJ = m_nvtx.o $(CUDA_SRC:.cuf=.o)
 
 all: euler2d_gpu
 
@@ -59,6 +58,9 @@ clean:
 
 cleanall: clean
 	rm -f *.vti *.*.gpu *.*.h crt1.reg.c
+
+m_nvtx.o: m_nvtx.f90
+	$(F90) -c -O3 $<
 
 %.o:    $(SRCDIR)/%.f90
 	$(F90) $(FFLAGS) -c $<
