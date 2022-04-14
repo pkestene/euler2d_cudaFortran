@@ -51,5 +51,5 @@ Visualization:
 The cuf version was written in 2013 (with the PGI compiler), and the stdpar version in 2022.
 
 In terms of performance,
-- the stdpar version is able to run at more than 500 Mcell-update per seconds on A100, using large domain (2048x2048).
-- the cuda-fortran is still more performant, about twice as fast for large domain.
+- stdpar version is able to run at more than 500 Mcell-updates per seconds on A100, using large domain (2048x2048).
+- cuda-fortran version has roughly the same performance (maybe slightly less performant).
