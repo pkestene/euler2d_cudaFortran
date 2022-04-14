@@ -2,3 +2,5 @@
 *.mod
 *.vti
 euler2d_gpu
+report*.sqlite
+report*.nsys-rep
