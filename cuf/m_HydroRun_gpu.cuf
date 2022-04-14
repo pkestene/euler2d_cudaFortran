@@ -22,6 +22,7 @@ module HydroRun_gpu
   use HydroParameters_gpu
   use HydroUtils_gpu
   use Monitoring_gpu
+  use m_nvtx
 
   use cudaFor
 
@@ -195,6 +196,8 @@ contains
     real(fp_kind) :: e    ! total energy
     real(fp_kind) :: p
 
+    call nvtxStartRange("compute_dt",1)
+
     ! for loop over inner region
     if (useU == 0) then
 
@@ -272,6 +275,8 @@ contains
 
     dt = cfl / invDt
 
+    call nvtxEndRange()
+
   end subroutine compute_dt
 
   !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -284,11 +289,15 @@ contains
     ! dummy variables
     real(fp_kind), intent(in) :: dt
 
+    call nvtxStartRange("godunov_compute",0)
+
     if ( modulo(nStep,2) == 0 ) then
        call godunov_unsplit_gpu(d_u , d_u2, dt)
     else
        call godunov_unsplit_gpu(d_u2, d_u , dt)
     end if
+
+    call nvtxEndRange()
 
   end subroutine godunov_unsplit
 
@@ -362,12 +371,18 @@ contains
 
     else if (implementationVersion == 1) then
 
+       call nvtxStartRange("convertToPrimitives",2)
+
        ! convert conservative variable into primitives ones for the entire domain
        dimBlock = dim3( PRIM_VAR_BLOCK_DIMX_2D_V1, PRIM_VAR_BLOCK_DIMY_2D_V1, 1 )
        dimGrid  = dim3( &
             & (isize+PRIM_VAR_BLOCK_DIMX_2D_V1-1)/PRIM_VAR_BLOCK_DIMX_2D_V1, &
             & (jsize+PRIM_VAR_BLOCK_DIMY_2D_V1-1)/PRIM_VAR_BLOCK_DIMY_2D_V1, 1)
        call convertToPrimitives<<<dimGrid,dimBlock>>>(data_in)
+
+       call nvtxEndRange()
+
+       call nvtxStartRange("computeTrace",3)
 
        ! trace computation: fill arrays d_qm_x, d_qm_y, d_qp_x, d_qp_y
        dimBlock = dim3( TRACE_BLOCK_DIMX_2D_V1, TRACE_BLOCK_DIMY_2D_V1, 1 )
@@ -376,12 +391,18 @@ contains
             & (jsize+TRACE_BLOCK_INNER_DIMY_2D_V1-1)/TRACE_BLOCK_INNER_DIMY_2D_V1, 1)
        call computeTrace<<<dimGrid,dimBlock>>>(d_q,d_qm_x,d_qm_y,d_qp_x,d_qp_y,dt)
 
+       call nvtxEndRange()
+
+       call nvtxStartRange("computeFluxAndUpdate",4)
+
        ! Compute flux via Riemann solver and update (time integration)
        dimBlock = dim3( UPDATE_BLOCK_DIMX_2D_V1, UPDATE_BLOCK_DIMY_2D_V1, 1 )
        dimGrid  = dim3( &
             & (isize+UPDATE_BLOCK_INNER_DIMX_2D_V1-1)/UPDATE_BLOCK_INNER_DIMX_2D_V1, &
             & (jsize+UPDATE_BLOCK_INNER_DIMY_2D_V1-1)/UPDATE_BLOCK_INNER_DIMY_2D_V1, 1)
        call computeFluxesAndUpdate<<<dimGrid,dimBlock>>>(data_in,data_out,d_qm_x,d_qm_y,d_qp_x,d_qp_y,dt)
+
+       call nvtxEndRange()
 
     end if
 
@@ -798,6 +819,8 @@ contains
 
     !! take care to reverse loop order
 
+    call nvtxStartRange("make_boundaries",5)
+
     ! boundary xmin
     !$cuf kernel do(1) <<< *, 128 >>>
     do j=ghostWidth+1,jsize-ghostWidth
@@ -873,6 +896,8 @@ contains
           end do
        end do
     end do
+
+    call nvtxEndRange()
 
   end subroutine make_boundaries_gpu
 

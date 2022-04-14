@@ -19,9 +19,11 @@ LDFLAGS = -O4
 CUDA_ARCH ?= cc75
 CUDA_VERSION ?= 11.6
 #FFLAGS_CUDA = -v -O3 -Mcuda -Mcuda=6.5 -Mcuda=$(CUDA_ARCH) -Mcuda=ptxinfo -ta=nvidia,fastmath,mul24,maxregcount:48,time -Minfo=all -Mpreprocess  -Mcuda=rdc
-FFLAGS_CUDA = -v -O3 -Mcuda -Mcuda=cuda$(CUDA_VERSION),$(CUDA_ARCH) -Mcuda=ptxinfo -ta=nvidia,maxregcount:48,time -Minfo=all -Mpreprocess  -Mcuda=rdc -acc
+FFLAGS_CUDA = -O3 -Mcuda -Mcuda=cuda$(CUDA_VERSION),$(CUDA_ARCH) -Mcuda=ptxinfo -ta=nvidia,maxregcount:48,time -Minfo=all -Mpreprocess  -Mcuda=rdc -acc
 #-Mcuda=keepgpu
 LDFLAGS_CUDA = -O3 -Mcuda=cuda$(CUDA_VERSION),$(CUDA_ARCH) -Mcuda=rdc -acc
+
+NVTX_LDFLAGS = -L$(NVHPC_ROOT)/cuda/lib64 -lnvToolsExt
 
 # PGI Debug #
 # F90 = pgfortran
@@ -35,6 +37,7 @@ LDFLAGS_CUDA = -O3 -Mcuda=cuda$(CUDA_VERSION),$(CUDA_ARCH) -Mcuda=rdc -acc
 SRCDIR = .
 
 CUDA_SRC = \
+	m_nvtx.f90 \
 	m_HydroPrecision.cuf \
 	m_HydroConstants.cuf \
 	m_HydroParameters.cuf \
@@ -49,8 +52,7 @@ CUDA_OBJ = $(CUDA_SRC:.cuf=.o)
 all: euler2d_gpu
 
 euler2d_gpu: $(CUDA_OBJ)
-	$(F90) $(LDFLAGS_CUDA) $(CUDA_OBJ) -o $@
-
+	$(F90) $(LDFLAGS_CUDA) $(CUDA_OBJ) -o $@ $(NVTX_LDFLAGS)
 
 clean:
 	rm -f *.o *.mod euler2d_cpu euler2d_gpu

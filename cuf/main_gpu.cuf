@@ -3,7 +3,7 @@
 !!
 !!
 !! This software is governed by the CeCILL license under French law and
-!! abiding by the rules of distribution of free software.  You can  use, 
+!! abiding by the rules of distribution of free software.  You can  use,
 !! modify and/ or redistribute the software under the terms of the CeCILL
 !! license as circulated by CEA, CNRS and INRIA at the following URL
 !! "http://www.cecill.info".
@@ -90,7 +90,7 @@ program euler2d_gpu
   write(*,*) 'io         time : ', d_io_timer%elapsed,        'secondes', 100*d_io_timer%elapsed / d_total_timer%elapsed, '%'
   write(*,*) 'boundaries time : ', d_boundaries_timer%elapsed,'secondes', 100*d_boundaries_timer%elapsed / d_total_timer%elapsed, '%'
 
-  write(*,*) 'Perf             : ',nStep*isize*jsize/(d_total_timer%elapsed-d_io_timer%elapsed), ' number of cell-updates/s'
+  write(*,*) 'Perf             : ',1.0*nStep*isize*jsize/(d_total_timer%elapsed-d_io_timer%elapsed)*1e-6, ' number of Mcell-updates/s'
 
   call cleanup_cuda_timer()
 
