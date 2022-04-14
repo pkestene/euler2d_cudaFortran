@@ -227,8 +227,9 @@ contains
     call make_boundaries(params, data_in)
     call timerStop(boundaries_timer)
 
-    ! copy data_in into data_out (not necessary)
-    data_out = data_in
+    ! copy data_in into data_out (not necessary) and if it where necessary
+    ! it should be done in a parallel region !
+    !data_out = data_in
 
     ! start main computation
     call timerStart(godunov_timer)
