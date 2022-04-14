@@ -3,7 +3,7 @@
 !!
 !!
 !! This software is governed by the CeCILL license under French law and
-!! abiding by the rules of distribution of free software.  You can  use, 
+!! abiding by the rules of distribution of free software.  You can  use,
 !! modify and/ or redistribute the software under the terms of the CeCILL
 !! license as circulated by CEA, CNRS and INRIA at the following URL
 !! "http://www.cecill.info".
@@ -125,8 +125,9 @@ module HydroParameters
       gamma6  = (gamma0 + ONE_F)/(TWO_F * gamma0)
 
       ! check that given parameters are valid
-      if ( (implementationVersion .ne. 0) .and. (implementationVersion .ne. 1)) then
-         write(*,*) 'The implementation version parameter should 0 or 1 !!!'
+      if (   (implementationVersion .ne. 0) .and. (implementationVersion .ne. 1) .and. &
+           & (implementationVersion .ne. 2) ) then
+         write(*,*) 'The implementation version parameter should 0, 1 or 2 !!!'
          write(*,*) 'Check your namelist file, section OTHER'
          stop
       else

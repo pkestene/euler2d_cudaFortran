@@ -3,7 +3,7 @@
 !!
 !!
 !! This software is governed by the CeCILL license under French law and
-!! abiding by the rules of distribution of free software.  You can  use, 
+!! abiding by the rules of distribution of free software.  You can  use,
 !! modify and/ or redistribute the software under the terms of the CeCILL
 !! license as circulated by CEA, CNRS and INRIA at the following URL
 !! "http://www.cecill.info".
@@ -50,6 +50,7 @@ module HydroConstants
   ! Implementation version
   integer(int_kind), parameter :: IMPL_VERSION_0=0
   integer(int_kind), parameter :: IMPL_VERSION_1=1
+  integer(int_kind), parameter :: IMPL_VERSION_2=2
 
   ! variables names (used in file IO)
   character(3), dimension(4), parameter :: varNames = (/ 'rho', '  E', ' mx', ' my' /)
@@ -60,5 +61,13 @@ module HydroConstants
   real(fp_kind), parameter :: ONE_FOURTH_F = 0.25
   real(fp_kind), parameter :: ONE_F        = 1.0
   real(fp_kind), parameter :: TWO_F        = 2.0
+
+  ! face Id's
+  integer(int_kind), parameter :: FACE_XMIN = 0
+  integer(int_kind), parameter :: FACE_XMAX = 1
+  integer(int_kind), parameter :: FACE_YMIN = 2
+  integer(int_kind), parameter :: FACE_YMAX = 3
+  integer(int_kind), parameter :: FACE_MIN = 0
+  integer(int_kind), parameter :: FACE_MAX = 1
 
 end module HydroConstants

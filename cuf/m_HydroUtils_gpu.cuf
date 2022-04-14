@@ -3,7 +3,7 @@
 !!
 !!
 !! This software is governed by the CeCILL license under French law and
-!! abiding by the rules of distribution of free software.  You can  use, 
+!! abiding by the rules of distribution of free software.  You can  use,
 !! modify and/ or redistribute the software under the terms of the CeCILL
 !! license as circulated by CEA, CNRS and INRIA at the following URL
 !! "http://www.cecill.info".
@@ -303,7 +303,95 @@ contains
 
   end subroutine trace_unsplit_hydro_2d
 
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !! Trace computations for unsplit Godunov scheme.
+  !!
+  !! \param[in] q          : Primitive variables state.
+  !! \param[in] dqX        : slope along X
+  !! \param[in] dqY        : slope along Y
+  !! \param[in] dtdx       : dt over dx
+  !! \param[in] dtdy       : dt over dy
+  !! \param[in] faceId     : which face will be reconstructed
+  !! \param[out] qface     : q reconstructed state at cell interface
+  !!
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  attributes(device) subroutine trace_unsplit_2d_along_dir(q, dq, dtdx, dtdy, faceId, qface)
 
+    implicit none
+
+    ! dummy variables
+    real(fp_kind), dimension(nbVar)  , intent(in)  :: q
+    real(fp_kind), dimension(2,nbVar), intent(in)  :: dq
+    real(fp_kind)                    , intent(in)  :: dtdx, dtdy
+    integer(int_kind)                , intent(in)  :: faceId
+    real(fp_kind), dimension(nbVar)  , intent(out) :: qface
+
+    ! local variables
+    real(fp_kind) :: r,p,u,v
+    real(fp_kind) :: drx,dpx,dux,dvx
+    real(fp_kind) :: dry,dpy,duy,dvy
+    real(fp_kind) :: sr0,sp0,su0,sv0
+
+    ! Cell centered values
+    r =  q(ID);
+    p =  q(IP);
+    u =  q(IU);
+    v =  q(IV);
+
+    ! TVD slopes in all directions
+    drx = dq(1,ID);
+    dpx = dq(1,IP);
+    dux = dq(1,IU);
+    dvx = dq(1,IV);
+
+    dry = dq(2,ID);
+    dpy = dq(2,IP);
+    duy = dq(2,IU);
+    dvy = dq(2,IV);
+
+    ! source terms (with transverse derivatives)
+    sr0 = -u*drx-v*dry - (dux+dvy)*r;
+    sp0 = -u*dpx-v*dpy - (dux+dvy)*d_gamma0*p;
+    su0 = -u*dux-v*duy - (dpx    )/r;
+    sv0 = -u*dvx-v*dvy - (dpy    )/r;
+
+    if (faceId == FACE_XMIN) then
+       ! Right state at left interface
+       qface(ID) = r - HALF_F*drx + sr0*dtdx*HALF_F;
+       qface(IP) = p - HALF_F*dpx + sp0*dtdx*HALF_F;
+       qface(IU) = u - HALF_F*dux + su0*dtdx*HALF_F;
+       qface(IV) = v - HALF_F*dvx + sv0*dtdx*HALF_F;
+       qface(ID) = max(d_smallr, qface(ID));
+    end if
+
+    if (faceId == FACE_XMAX) then
+       ! Left state at right interface
+       qface(ID) = r + HALF_F*drx + sr0*dtdx*HALF_F;
+       qface(IP) = p + HALF_F*dpx + sp0*dtdx*HALF_F;
+       qface(IU) = u + HALF_F*dux + su0*dtdx*HALF_F;
+       qface(IV) = v + HALF_F*dvx + sv0*dtdx*HALF_F;
+       qface(ID) = max(d_smallr, qface(ID));
+    end if
+
+    if (faceId == FACE_YMIN) then
+       ! Top state at bottom interface
+       qface(ID) = r - HALF_F*dry + sr0*dtdy*HALF_F;
+       qface(IP) = p - HALF_F*dpy + sp0*dtdy*HALF_F;
+       qface(IU) = u - HALF_F*duy + su0*dtdy*HALF_F;
+       qface(IV) = v - HALF_F*dvy + sv0*dtdy*HALF_F;
+       qface(ID) = max(d_smallr, qface(ID));
+    end if
+
+    if (faceId == FACE_YMAX) then
+       ! Bottom state at top interface
+       qface(ID) = r + HALF_F*dry + sr0*dtdy*HALF_F;
+       qface(IP) = p + HALF_F*dpy + sp0*dtdy*HALF_F;
+       qface(IU) = u + HALF_F*duy + su0*dtdy*HALF_F;
+       qface(IV) = v + HALF_F*dvy + sv0*dtdy*HALF_F;
+       qface(ID) = max(d_smallr, qface(ID));
+    end if
+
+  end subroutine trace_unsplit_2d_along_dir
 
   !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   !! Compute hydro slopes

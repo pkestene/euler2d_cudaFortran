@@ -3,7 +3,7 @@
 !!
 !!
 !! This software is governed by the CeCILL license under French law and
-!! abiding by the rules of distribution of free software.  You can  use, 
+!! abiding by the rules of distribution of free software.  You can  use,
 !! modify and/ or redistribute the software under the terms of the CeCILL
 !! license as circulated by CEA, CNRS and INRIA at the following URL
 !! "http://www.cecill.info".
@@ -38,6 +38,8 @@ module HydroRun_gpu
   real(fp_kind), dimension(:,:,:), allocatable, device :: d_qm_x, d_qm_y !< input to Riemann solvers (implementation version 1 only)
   real(fp_kind), dimension(:,:,:), allocatable, device :: d_qp_x, d_qp_y !< input to Riemann solvers (implementation version 1 only)
 
+  real(fp_kind), dimension(:,:,:), allocatable, device :: d_fx, d_fy !< Riemann fluxes (implementation version 2 only)
+
 
   ! cuda kernel parameters
 #ifdef USE_DOUBLE
@@ -61,6 +63,14 @@ module HydroRun_gpu
   ! compute update kernel parameters (v1)
   integer, parameter ::  UPDATE_BLOCK_DIMX_2D_V1=16, UPDATE_BLOCK_INNER_DIMX_2D_V1=15
   integer, parameter ::  UPDATE_BLOCK_DIMY_2D_V1=16, UPDATE_BLOCK_INNER_DIMY_2D_V1=15
+
+  ! update compute fluxes and store (v2)
+  integer, parameter ::  CMP_FLX_STORE_BLOCK_DIMX_2D_V2=32
+  integer, parameter ::  CMP_FLX_STORE_BLOCK_DIMY_2D_V2=6
+
+  ! update hydro (v2)
+  integer, parameter ::  UPDATE_HYDRO_BLOCK_DIMX_2D_V2=32
+  integer, parameter ::  UPDATE_HYDRO_BLOCK_DIMY_2D_V2=6
 
   ! external boundaries
   integer, parameter :: BOUNDARY_BLOCK_SIZE=128
@@ -88,6 +98,12 @@ contains
        allocate( d_qp_y(isize, jsize, nbVar) )
     end if
 
+    if (implementationVersion .eq. 2) then
+       allocate( d_q (isize, jsize, nbVar) )
+       allocate( d_fx(isize, jsize, nbVar) )
+       allocate( d_fy(isize, jsize, nbVar) )
+    end if
+
     ! initialize u (at t=0)
     select case (problem)
     case('implode') ! discontinuity line along the domain diagonal
@@ -113,6 +129,10 @@ contains
 
     if (implementationVersion .eq. 1) then
        deallocate(d_q,d_qm_x,d_qm_y,d_qp_x,d_qp_y)
+    end if
+
+    if (implementationVersion .eq. 2) then
+       deallocate(d_q, d_fx, d_fy)
     end if
 
   end subroutine cleanupHydroRun
@@ -322,7 +342,7 @@ contains
     real(fp_kind) :: dtdy
 
     ! Local variables for trace computation
-    ! we need to store qm/qp for current position i,j and i-1,j and i,j-1 
+    ! we need to store qm/qp for current position i,j and i-1,j and i,j-1
     ! that is 1+2=3 positions in total
     real(fp_kind), dimension(3, nbVar) :: qm_x
     real(fp_kind), dimension(3, nbVar) :: qm_y
@@ -371,37 +391,58 @@ contains
 
     else if (implementationVersion == 1) then
 
-       call nvtxStartRange("convertToPrimitives",2)
-
        ! convert conservative variable into primitives ones for the entire domain
+       call nvtxStartRange("convertToPrimitives",2)
        dimBlock = dim3( PRIM_VAR_BLOCK_DIMX_2D_V1, PRIM_VAR_BLOCK_DIMY_2D_V1, 1 )
        dimGrid  = dim3( &
             & (isize+PRIM_VAR_BLOCK_DIMX_2D_V1-1)/PRIM_VAR_BLOCK_DIMX_2D_V1, &
             & (jsize+PRIM_VAR_BLOCK_DIMY_2D_V1-1)/PRIM_VAR_BLOCK_DIMY_2D_V1, 1)
        call convertToPrimitives<<<dimGrid,dimBlock>>>(data_in)
-
        call nvtxEndRange()
 
-       call nvtxStartRange("computeTrace",3)
-
        ! trace computation: fill arrays d_qm_x, d_qm_y, d_qp_x, d_qp_y
+       call nvtxStartRange("computeTrace",3)
        dimBlock = dim3( TRACE_BLOCK_DIMX_2D_V1, TRACE_BLOCK_DIMY_2D_V1, 1 )
        dimGrid  = dim3( &
             & (isize+TRACE_BLOCK_INNER_DIMX_2D_V1-1)/TRACE_BLOCK_INNER_DIMX_2D_V1, &
             & (jsize+TRACE_BLOCK_INNER_DIMY_2D_V1-1)/TRACE_BLOCK_INNER_DIMY_2D_V1, 1)
        call computeTrace<<<dimGrid,dimBlock>>>(d_q,d_qm_x,d_qm_y,d_qp_x,d_qp_y,dt)
-
        call nvtxEndRange()
 
-       call nvtxStartRange("computeFluxAndUpdate",4)
-
        ! Compute flux via Riemann solver and update (time integration)
+       call nvtxStartRange("computeFluxAndUpdate",4)
        dimBlock = dim3( UPDATE_BLOCK_DIMX_2D_V1, UPDATE_BLOCK_DIMY_2D_V1, 1 )
        dimGrid  = dim3( &
             & (isize+UPDATE_BLOCK_INNER_DIMX_2D_V1-1)/UPDATE_BLOCK_INNER_DIMX_2D_V1, &
             & (jsize+UPDATE_BLOCK_INNER_DIMY_2D_V1-1)/UPDATE_BLOCK_INNER_DIMY_2D_V1, 1)
        call computeFluxesAndUpdate<<<dimGrid,dimBlock>>>(data_in,data_out,d_qm_x,d_qm_y,d_qp_x,d_qp_y,dt)
+       call nvtxEndRange()
 
+    else if (implementationVersion == 2) then
+
+       ! convert conservative variable into primitives ones for the entire domain
+       call nvtxStartRange("convertToPrimitives",2)
+       dimBlock = dim3( PRIM_VAR_BLOCK_DIMX_2D_V1, PRIM_VAR_BLOCK_DIMY_2D_V1, 1 )
+       dimGrid  = dim3( &
+            & (isize+PRIM_VAR_BLOCK_DIMX_2D_V1-1)/PRIM_VAR_BLOCK_DIMX_2D_V1, &
+            & (jsize+PRIM_VAR_BLOCK_DIMY_2D_V1-1)/PRIM_VAR_BLOCK_DIMY_2D_V1, 1)
+       call convertToPrimitives<<<dimGrid,dimBlock>>>(data_in)
+       call nvtxEndRange()
+
+       call nvtxStartRange("updateHydro",3)
+       dimBlock = dim3( CMP_FLX_STORE_BLOCK_DIMX_2D_V2, CMP_FLX_STORE_BLOCK_DIMY_2D_V2, 1 )
+       dimGrid  = dim3( &
+            & (isize+CMP_FLX_STORE_BLOCK_DIMX_2D_V2-1)/CMP_FLX_STORE_BLOCK_DIMX_2D_V2, &
+            & (jsize+CMP_FLX_STORE_BLOCK_DIMY_2D_V2-1)/CMP_FLX_STORE_BLOCK_DIMY_2D_V2, 1)
+       call computeFluxesAndStore<<<dimGrid,dimBlock>>>(data_in, d_fx, d_fy, dt)
+       call nvtxEndRange()
+
+       call nvtxStartRange("updateHydro",4)
+       dimBlock = dim3( UPDATE_HYDRO_BLOCK_DIMX_2D_V2, UPDATE_HYDRO_BLOCK_DIMY_2D_V2, 1 )
+       dimGrid  = dim3( &
+            & (isize+UPDATE_HYDRO_BLOCK_DIMX_2D_V2-1)/UPDATE_HYDRO_BLOCK_DIMX_2D_V2, &
+            & (jsize+UPDATE_HYDRO_BLOCK_DIMY_2D_V2-1)/UPDATE_HYDRO_BLOCK_DIMY_2D_V2, 1)
+       call updateHydro<<<dimGrid,dimBlock>>>(data_in, data_out)
        call nvtxEndRange()
 
     end if
@@ -699,6 +740,195 @@ contains
     end if
 
   end subroutine computeFluxesAndUpdate
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !! Compute flux via Riemann solver and store
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  attributes(global) subroutine computeFluxesAndStore(data_in,d_fx,d_fy,dt)
+
+    implicit none
+
+    ! dummy variables
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(inout) :: data_in
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(out) :: d_fx
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(out) :: d_fy
+    real(fp_kind), intent(in), value    :: dt
+
+
+    ! local variables
+    integer :: i,j,ivar
+    real(fp_kind), dimension(nbVar)     :: qleft, qright
+    real(fp_kind), dimension(nbVar)     :: flux_x, flux_y
+    real(fp_kind), dimension(nbVar)     :: qgdnv
+    real(fp_kind), dimension(nbVar)     :: qLoc, qLocN, qN0, qN1, qN2, qN3
+    real(fp_kind), dimension(2,nbVar)   :: dq, dqN
+
+    real(fp_kind) :: tmp
+
+    real(fp_kind) :: dtdx
+    real(fp_kind) :: dtdy
+
+    ! Block index
+    integer :: bx
+    integer :: by
+
+    ! Thread index
+    integer :: tx
+    integer :: ty
+
+    ! set local indexes
+    bx = blockIdx%x
+    by = blockIdx%y
+    tx = threadIdx%x
+    ty = threadIdx%y
+
+    i = (bx-1)*CMP_FLX_STORE_BLOCK_DIMX_2D_V2 + tx
+    j = (by-1)*CMP_FLX_STORE_BLOCK_DIMY_2D_V2 + ty
+
+    dtdx = dt / d_dx
+    dtdy = dt / d_dy
+
+    if (   i <= d_isize   .and. j <= d_jsize .and. &
+         & i > ghostWidth .and. j >  ghostWidth) then
+
+
+       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+       !! deal with left interface along X !
+       !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+       !! get primitive variables state vector
+       do ivar=1,nbVar
+          qLoc(ivar) = d_q(i  ,j  , ivar)
+          qN0(ivar)  = d_q(i+1,j  , ivar)
+          qN1(ivar)  = d_q(i-1,j  , ivar)
+          qN2(ivar)  = d_q(i  ,j+1, ivar)
+          qN3(ivar)  = d_q(i  ,j-1, ivar)
+       end do
+
+       call slope_unsplit_hydro_2d_v2(qLoc, qN0, qN1, qN2, qN3, dq)
+
+       ! slopes at left neighbor along X
+       do ivar=1,nbVar
+          qLocN(ivar) = d_q(i-1,j  , ivar)
+          qN0(ivar)   = d_q(i  ,j  , ivar)
+          qN1(ivar)   = d_q(i-2,j  , ivar)
+          qN2(ivar)   = d_q(i-1,j+1, ivar)
+          qN3(ivar)   = d_q(i-1,j-1, ivar)
+       end do
+
+       call slope_unsplit_hydro_2d_v2(qLocN, qN0, qN1, qN2, qN3, dqN)
+
+       !
+       ! compute reconstructed states at left interface along X
+       !
+
+       ! left interface : right state
+       call trace_unsplit_2d_along_dir(qLoc, dq, dtdx, dtdy, FACE_XMIN, qright)
+
+       ! left interface : left state
+       call trace_unsplit_2d_along_dir(qLocN, dqN, dtdx, dtdy, FACE_XMAX, qleft)
+
+       ! compute hydro flux_x
+       call riemann_2d(qleft,qright,qgdnv,flux_x)
+
+       !
+       ! store fluxes X
+       !
+       do ivar=1,nbVar
+          d_fx(i  ,j  , ivar) = flux_x(ivar) * dtdx
+       end do
+
+       !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+       !! deal with left interface along Y !
+       !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+       !! slopes at left neighbor along Y
+       do ivar=1,nbVar
+          qLocN(ivar) = d_q(i  ,j-1, ivar)
+          qN0(ivar)   = d_q(i+1,j-1, ivar)
+          qN1(ivar)   = d_q(i-1,j-1, ivar)
+          qN2(ivar)   = d_q(i  ,j  , ivar)
+          qN3(ivar)   = d_q(i  ,j-2, ivar)
+       end do
+
+       call slope_unsplit_hydro_2d_v2(qLocN, qN0, qN1, qN2, qN3, dqN)
+
+       !!
+       !! compute reconstructed states at left interface along Y
+       !!
+
+       !! left interface : right state
+       call trace_unsplit_2d_along_dir(qLoc, dq, dtdx, dtdy, FACE_YMIN, qright)
+
+       !! left interface : left state
+       call trace_unsplit_2d_along_dir(qLocN, dqN, dtdx, dtdy, FACE_YMAX, qleft)
+
+       ! swap IU / IV
+       tmp = qleft(IU); qleft(IU) = qleft(IV); qleft(IV) = tmp
+       tmp = qright(IU); qright(IU) = qright(IV); qright(IV) = tmp
+
+       ! compute hydro flux_y
+       call riemann_2d(qleft,qright,qgdnv,flux_y)
+
+       tmp = flux_y(IU); flux_y(IU) = flux_y(IV); flux_y(IV) = tmp
+
+       !
+       ! store fluxes Y
+       !
+       do ivar=1,nbVar
+          d_fy(i  ,j  , ivar) = flux_y(ivar) * dtdy
+       end do
+
+    end if
+
+  end subroutine computeFluxesAndStore
+
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  !! Update with hydro fluxes
+  !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+  attributes(global) subroutine updateHydro(data_in,data_out)
+
+    implicit none
+
+    ! dummy variables
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(in)  :: data_in
+    real(fp_kind), dimension(d_isize, d_jsize, nbVar), intent(out) :: data_out
+
+    ! local variables
+    ! primitive variable state vector
+    integer :: i,j,ivar
+    real(fp_kind) :: flux_tot
+
+    ! Block index
+    integer :: bx
+    integer :: by
+
+    ! Thread index
+    integer :: tx
+    integer :: ty
+
+    bx = blockIdx%x
+    by = blockIdx%y
+    tx = threadIdx%x
+    ty = threadIdx%y
+
+    i = (bx-1) * UPDATE_HYDRO_BLOCK_DIMX_2D_V2 + tx
+    j = (by-1) * UPDATE_HYDRO_BLOCK_DIMY_2D_V2 + ty
+
+
+    ! load U (at t) and update U2 (at t+ dt)
+    if (   i <= d_isize .and. &
+         & j <= d_jsize        ) then
+
+       do ivar=1,nbVar
+          flux_tot  = d_fx(i  ,j  ,ivar) - d_fx(i+1,j  ,ivar)
+          flux_tot  = d_fy(i  ,j  ,ivar) - d_fy(i  ,j+1,ivar) + flux_tot
+          data_out(i, j, ivar) = data_in(i, j, ivar) + flux_tot
+       end do
+
+    end if
+
+  end subroutine updateHydro
 
   !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
   !! Hydrodynamical Implosion Test :
@@ -1040,7 +1270,7 @@ contains
 
     if(    i  > ghostWidth .and. i  <= d_isize-ghostWidth               .and. &
          & tx > ghostWidth .and. tx <= UNSPLIT_BLOCK_DIMX_2D-ghostWidth .and. &
-         & j  > ghostWidth .and. j  <= d_jsize-ghostWidth               .and. & 
+         & j  > ghostWidth .and. j  <= d_jsize-ghostWidth               .and. &
          & ty > ghostWidth .and. ty <= UNSPLIT_BLOCK_DIMY_2D-ghostWidth) then
 
       ! update U with flux_x
