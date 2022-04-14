@@ -97,6 +97,6 @@ program euler2d
   write(*,*) 'io         time : ', io_timer%elapsed,        'secondes', 100*io_timer%elapsed / total_timer%elapsed, '%'
   write(*,*) 'boundaries time : ', boundaries_timer%elapsed,'secondes', 100*boundaries_timer%elapsed / total_timer%elapsed, '%'
 
-  write(*,*) 'Perf             : ',nStep*hydroParams%isize*hydroParams%jsize/(total_timer%elapsed-io_timer%elapsed)*1e-6, ' number of Mcell-updates/s'
+  write(*,*) 'Perf             : ',1.0*nStep*hydroParams%isize*hydroParams%jsize/(total_timer%elapsed-io_timer%elapsed)*1e-6, ' number of Mcell-updates/s'
 
 end program euler2d
