@@ -1,3 +1,5 @@
+![euler2d 350x350](https://github.com/pkestene/euler2d_cudaFortran/blob/master/euler2d.png?raw=true)
+
 # euler2d_cudaFortran
 
 2nd order Godunov solver for 2d Euler equations written in CUDA Fortran
