@@ -1,13 +1,13 @@
 
 &RUN
 tEnd=10.0
-nStepmax=100
-nOutput=10
+nStepmax=5000
+nOutput=1000
 /
 
 &MESH
-nx=128
-ny=128
+nx=1024
+ny=1024
 boundary_type_xmin=1
 boundary_type_xmax=1
 boundary_type_ymin=1
@@ -25,5 +25,5 @@ slope_type=2
 /
 
 &OTHER
-implementationVersion=1
+implementationVersion=2
 /

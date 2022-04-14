@@ -1,13 +1,13 @@
 
 &RUN
 tEnd=10.0
-nStepmax=500
-nOutput=50
+nStepmax=5000
+nOutput=1000
 /
 
 &MESH
-nx=256
-ny=256
+nx=1024
+ny=1024
 boundary_type_xmin=1
 boundary_type_xmax=1
 boundary_type_ymin=1
