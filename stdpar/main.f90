@@ -69,7 +69,9 @@ program euler2d
      end if
 
      ! compute dt
+     call timerStart( timeStep_timer )
      call compute_dt( hydroParams, dt, modulo(nStep,2) )
+     call timerStop( timeStep_timer )
 
      ! perform one step integration
      call godunov_unsplit(nStep,dt)
@@ -91,6 +93,7 @@ program euler2d
   ! print monitoring
   write(*,*) 'total      time : ', total_timer%elapsed,     'secondes'
   write(*,*) 'compute    time : ', godunov_timer%elapsed,   'secondes', 100*godunov_timer%elapsed / total_timer%elapsed, '%'
+  write(*,*) 'time step  time : ', timeStep_timer%elapsed,  'secondes', 100*timeStep_timer%elapsed / total_timer%elapsed, '%'
   write(*,*) 'io         time : ', io_timer%elapsed,        'secondes', 100*io_timer%elapsed / total_timer%elapsed, '%'
   write(*,*) 'boundaries time : ', boundaries_timer%elapsed,'secondes', 100*boundaries_timer%elapsed / total_timer%elapsed, '%'
 

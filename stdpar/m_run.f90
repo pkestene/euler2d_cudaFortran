@@ -7,6 +7,7 @@ module m_run
   use m_constants
   use m_parameters
   use m_utils
+  use m_nvtx
 
   implicit none
 
@@ -191,11 +192,15 @@ contains
     integer      , intent(in) :: nStep
     real(fp_kind), intent(in) :: dt
 
+    call nvtxStartRange("godunov_compute",0)
+
     if ( modulo(nStep,2) == 0 ) then
        call godunov_unsplit_cpu(hydroParams, u , u2, dt)
     else
        call godunov_unsplit_cpu(hydroParams, u2, u , dt)
     end if
+
+    call nvtxEndRange()
 
   end subroutine godunov_unsplit
 
@@ -258,6 +263,8 @@ contains
     real(fp_kind), dimension(nbVar) :: qLoc
     real(fp_kind)                   :: c
 
+    call nvtxStartRange("compute_dt",1)
+
     ! for loop over inner region
     if (useU == 0) then
 
@@ -299,6 +306,8 @@ contains
 
     dt = params%cfl / invDt
 
+    call nvtxEndRange()
+
   end subroutine compute_dt
 
   !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -325,6 +334,8 @@ contains
     real(fp_kind)                   :: eken ! kinetic energy
     real(fp_kind)                   :: e    ! total energy
 
+    call nvtxStartRange("convertToPrimitives",2)
+
     do concurrent (j=1:params%jsize, i=1:params%isize) local(uLoc,qLoc,c,e,eken) shared(params)
 
        uLoc(ID) = uData(i,j,ID)
@@ -340,6 +351,8 @@ contains
        qData(i,j,IV) = qLoc(IV)
 
     end do ! end do i,j
+
+    call nvtxEndRange()
 
   end subroutine convertToPrimitives
 
@@ -370,6 +383,8 @@ contains
 
     dtdx = dt / params%dx
     dtdy = dt / params%dy
+
+    call nvtxStartRange("computeAndStoreFluxes",3)
 
     do concurrent(j=ghostWidth+1:params%jsize-ghostWidth+1, i=ghostWidth+1:params%isize-ghostWidth+1) &
          & local(ivar,qleft,qright,flux_x,flux_y,qgdnv,qLoc,qLocN,qN0,qN1,qN2,qN3,dq,dqN) &
@@ -464,6 +479,8 @@ contains
 
     end do
 
+    call nvtxEndRange()
+
   end subroutine computeAndStoreFluxes
 
   !! !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -482,6 +499,8 @@ contains
     integer :: i,j,ivar
     real(fp_kind) :: flux_tot
 
+    call nvtxStartRange("updateHydro",4)
+
     do concurrent(j=ghostWidth+1:params%jsize-ghostWidth, i=ghostWidth+1:params%isize-ghostWidth) &
          & local(ivar,flux_tot)
 
@@ -492,6 +511,8 @@ contains
        end do
 
     end do
+
+    call nvtxEndRange()
 
   end subroutine updateHydro
 
@@ -543,6 +564,8 @@ contains
     ! local variables
     integer ::i,j,i0,j0,iVar
     real(fp_kind) :: dir
+
+    call nvtxStartRange("make_boundaries",5)
 
     ! boundary xmin
     do concurrent(j=jmin+ghostWidth:jmax-ghostWidth) local(iVar,i,dir,i0) shared(params)
@@ -616,6 +639,8 @@ contains
           end do
        end do
     end do
+
+    call nvtxEndRange()
 
   end subroutine make_boundaries
 

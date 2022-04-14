@@ -24,6 +24,7 @@ module m_monitoring
 
   type(Timer) :: total_timer
   type(Timer) :: godunov_timer
+  type(Timer) :: timeStep_timer
   type(Timer) :: boundaries_timer
   type(Timer) :: io_timer
 
