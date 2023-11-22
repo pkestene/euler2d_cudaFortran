@@ -1,12 +1,12 @@
-# ######## PGI ########
+# ######## NVHPC ########
 F90 = nvfortran
 FFLAGS = -O4 -fast -Minform=warn -Minfo
 LDFLAGS = -O4
 
-CUDA_ARCH ?= cc75
-CUDA_VERSION ?= 11.6
-FFLAGS_CUDA = -O3 -stdpar=gpu -gpu=cuda$(CUDA_VERSION),$(CUDA_ARCH) -acc=gpu -gpu=rdc,managed -Minform=warn -Minfo -Mpreprocess
-LDFLAGS_CUDA = -O3 -stdpar=gpu -gpu=cuda$(CUDA_VERSION),$(CUDA_ARCH) -acc=gpu -gpu=rdc,managed
+#CUDA_ARCH ?= cc75
+#CUDA_VERSION ?= 11.6
+FFLAGS_CUDA = -O3 -stdpar=gpu -gpu=ccnative -acc=gpu -gpu=rdc,managed -Minform=warn -Minfo -Mpreprocess
+LDFLAGS_CUDA = -O3 -stdpar=gpu -gpu=ccnative -acc=gpu -gpu=rdc,managed
 
 NVTX_LDFLAGS = -L$(NVHPC_ROOT)/cuda/lib64 -lnvToolsExt
 
