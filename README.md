@@ -16,17 +16,21 @@ There are actually two version, one is using the so called [cuda fortran](https:
 
 ## Nvhpc compiler for Cuda Fortran and stdpar
 
-You need to have installed [nvhpc] to build this application.
+You need to have installed [nvhpc] to build this application. then, e.g
 
-Build for a given Cuda architecture, using a given Cuda runtime version (assuming you install nvhpc)
+```shell
+module load nvhpc/23.11
+```
+
+By default, nvfortran will detect visible GPU available on the system, and generate code for it.
 
 ```shell
 # for the cuda fortran version
 cd cuf
-make CUDA_ARCH=cc80 CUDA_VERSION=11.6
+make
 # for the stdpar version
 cd stdpar
-make CUDA_ARCH=cc80 CUDA_VERSION=11.6
+make
 ```
 
 ## Parameter file

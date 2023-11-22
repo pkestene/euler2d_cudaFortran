@@ -16,12 +16,12 @@ F90 = nvfortran
 FFLAGS = -O4 -fast -Minform=warn -Minfo
 LDFLAGS = -O4
 
-CUDA_ARCH ?= cc80
-CUDA_VERSION ?= 11.8
+#CUDA_ARCH ?= cc80
+#CUDA_VERSION ?= 11.8
 #FFLAGS_CUDA = -v -O3 -Mcuda -Mcuda=6.5 -Mcuda=$(CUDA_ARCH) -Mcuda=ptxinfo -ta=nvidia,fastmath,mul24,maxregcount:48,time -Minfo=all -Mpreprocess  -Mcuda=rdc
-FFLAGS_CUDA = -O3 -cuda -gpu=cuda$(CUDA_VERSION),$(CUDA_ARCH) -gpu=ptxinfo -Minfo=all -Mpreprocess  -gpu=rdc -acc
+FFLAGS_CUDA = -O3 -cuda -gpu=ccnative -gpu=ptxinfo -Minfo=all -Mpreprocess  -gpu=rdc -acc
 #-Mcuda=keepgpu
-LDFLAGS_CUDA = -O3 -cuda -gpu=cuda$(CUDA_VERSION),$(CUDA_ARCH) -gpu=rdc -acc
+LDFLAGS_CUDA = -O3 -cuda -gpu=ccnative -gpu=rdc -acc
 
 NVTX_LDFLAGS = -L$(NVHPC_ROOT)/cuda/lib64 -lnvToolsExt
 
