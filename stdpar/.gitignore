@@ -1,2 +1,3 @@
 euler2d_stdpar_gpu
 euler2d_stdpar_cpu
+_build/*
