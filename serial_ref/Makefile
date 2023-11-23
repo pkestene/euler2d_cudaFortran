@@ -17,13 +17,13 @@ SRC = \
 	m_run.f90 \
 	main.f90
 
-CUDA_OBJ = $(SRC:.f90=.o)
+OBJS = $(SRC:.f90=.o)
 
 all: euler2d
 
-euler2d: $(CUDA_OBJ)
-	#$(F90) $(LDFLAGS_CUDA) $(CUDA_OBJ) -o $@ $(NVTX_LDFLAGS)
-	$(F90) $(LDFLAGS_CUDA) $(CUDA_OBJ) -o $@
+euler2d: $(OBJS)
+	#$(F90) $(LDFLAGS_CUDA) $(OBJS) -o $@ $(NVTX_LDFLAGS)
+	$(F90) $(LDFLAGS_CUDA) $(OBJS) -o $@
 
 clean:
 	rm -f *.o *.mod euler2d euler2d
