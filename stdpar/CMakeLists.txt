@@ -9,7 +9,7 @@ if(NOT CMAKE_VERSION VERSION_LESS 3.12)
   cmake_policy(SET CMP0074 NEW)
 endif()
 
-project(abinit
+project(euler2d
   LANGUAGES C CXX Fortran
   HOMEPAGE_URL https://github.com/pkestene/euler2d_cudaFortran
   DESCRIPTION "Simple example of standard parallelism in Fortran.")
