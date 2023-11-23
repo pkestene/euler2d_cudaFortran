@@ -69,5 +69,6 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "NVHPC" OR CMAKE_CXX_COMPILER_ID MATCHES "PGI")
 
   set(NVTX_LDFLAGS -L$ENV{NVHPC_ROOT}/cuda/lib64 -lnvToolsExt)
   target_link_options(euler2d_stdpar_gpu PRIVATE ${NVTX_LDFLAGS})
-
 endif()
+
+configure_file(test.nml test.nml COPYONLY)
